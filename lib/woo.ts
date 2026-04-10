@@ -10,22 +10,25 @@ export type WooProduct = {
   images: Array<{ src: string }>;
 };
 
-const requiredWooEnvs = ["WOO_URL", "WOO_KEY", "WOO_SECRET"] as const;
-
-for (const envName of requiredWooEnvs) {
-  if (!process.env[envName]) {
-    throw new Error(`Missing required env var: ${envName}`);
+function getWooEnv(name: "WOO_URL" | "WOO_KEY" | "WOO_SECRET") {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required env var: ${name}`);
   }
+  return value;
 }
 
-export const woo = new WooCommerceRestApi({
-  url: process.env.WOO_URL!,
-  consumerKey: process.env.WOO_KEY!,
-  consumerSecret: process.env.WOO_SECRET!,
-  version: "wc/v3",
-});
+function getWooClient() {
+  return new WooCommerceRestApi({
+    url: getWooEnv("WOO_URL"),
+    consumerKey: getWooEnv("WOO_KEY"),
+    consumerSecret: getWooEnv("WOO_SECRET"),
+    version: "wc/v3",
+  });
+}
 
 export async function fetchAllWooProducts() {
+  const woo = getWooClient();
   const products: WooProduct[] = [];
   let page = 1;
   let hasMore = true;
