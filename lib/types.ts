@@ -24,6 +24,8 @@ export type AdminProduct = {
   sku: string;
   base_price: number;
   image: string | null;
+  woo_updated_at: string | null;
+  synced_at: string | null;
   is_active: boolean;
   min_quantity: number;
   custom_price: number | null;

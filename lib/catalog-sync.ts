@@ -16,7 +16,20 @@ type CacheUpsertRow = {
 function getBasePrice(product: WooProduct) {
   const rawPrice =
     product.price || product.sale_price || product.regular_price || "0";
-  return Number(rawPrice || 0);
+  const normalized = String(rawPrice).replace(",", ".");
+  const parsed = Number.parseFloat(normalized);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  // Matches numeric(12,2) upper bound safety margin.
+  const maxAllowed = 9999999999.99;
+  if (parsed > maxAllowed) {
+    return 0;
+  }
+
+  return Number(parsed.toFixed(2));
 }
 
 export function mapWooProductToCacheRow(product: WooProduct): CacheUpsertRow {

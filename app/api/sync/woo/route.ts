@@ -10,6 +10,16 @@ function isAuthorized(req: Request) {
     return true;
   }
 
+  // Allows triggering from admin UI without exposing sync token in frontend.
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("host");
+  const referer = req.headers.get("referer");
+  const isSameOrigin = origin && host ? origin.includes(host) : false;
+  const isAdminReferer = referer?.includes("/admin") ?? false;
+  if (isSameOrigin && isAdminReferer) {
+    return true;
+  }
+
   const expectedToken = process.env.WHOLESALE_SYNC_TOKEN;
   if (!expectedToken) {
     return false;
