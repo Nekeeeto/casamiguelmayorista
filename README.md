@@ -42,7 +42,7 @@ Abrir `http://localhost:3000/admin`.
 - `components/admin/products-table.tsx` grilla de catálogo y toggles
 - `app/api/products/route.ts` catálogo desde cache Supabase + estado mayorista
 - `app/api/products/toggle/route.ts` toggle activo/inactivo en Supabase
-- `app/api/sync/woo/route.ts` sync manual/cron completo Woo -> cache
+- `app/api/sync/route.ts` y `app/api/sync/woo/route.ts` sync manual/cron completo Woo -> cache (mismo `POST`)
 - `app/api/webhooks/woocommerce/route.ts` sync incremental por cambios de Woo
 - `lib/woo.ts` cliente WooCommerce
 - `lib/catalog-sync.ts` mapeo y upsert/delete de cache
@@ -51,10 +51,10 @@ Abrir `http://localhost:3000/admin`.
 ## Flujo de sincronización recomendado
 
 1. Seed inicial:
-   - Hacer `POST /api/sync/woo` con header `Authorization: Bearer <WHOLESALE_SYNC_TOKEN>`.
+   - Hacer `POST /api/sync` o `POST /api/sync/woo` con header `Authorization: Bearer <WHOLESALE_SYNC_TOKEN>`.
 2. Incremental:
    - Configurar webhooks de Woo a `POST /api/webhooks/woocommerce`.
    - Topic recomendado: `product.created`, `product.updated`, `product.deleted`.
    - Secret del webhook en Woo = `WOO_WEBHOOK_SECRET`.
 3. Respaldo automático:
-   - `vercel.json` define cron cada 6h hacia `/api/sync/woo` (header `x-vercel-cron`).
+   - `vercel.json` define cron cada 6h hacia `/api/sync` (header `x-vercel-cron`).
