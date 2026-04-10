@@ -1,0 +1,42 @@
+import { NextResponse } from "next/server";
+
+import { upsertWooProductsCache } from "@/lib/catalog-sync";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAllWooProducts } from "@/lib/woo";
+
+function isAuthorized(req: Request) {
+  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
+  if (isVercelCron) {
+    return true;
+  }
+
+  const expectedToken = process.env.WHOLESALE_SYNC_TOKEN;
+  if (!expectedToken) {
+    return false;
+  }
+
+  const authHeader = req.headers.get("authorization");
+  return authHeader === `Bearer ${expectedToken}`;
+}
+
+export async function POST(req: Request) {
+  try {
+    if (!isAuthorized(req)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    const products = await fetchAllWooProducts();
+    await upsertWooProductsCache(supabaseAdmin, products);
+
+    return NextResponse.json({
+      ok: true,
+      synced_products: products.length,
+      synced_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unexpected server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

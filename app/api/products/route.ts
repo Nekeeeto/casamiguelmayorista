@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import type { AdminProduct, WholesaleProductRecord } from "@/lib/types";
-import { fetchAllWooProducts } from "@/lib/woo";
+import type {
+  AdminProduct,
+  WholesaleProductRecord,
+  WooProductCacheRecord,
+} from "@/lib/types";
 
 function getWooCatalogLimit(): number | undefined {
   const raw = process.env.WHOLESALE_CATALOG_LIMIT?.trim().toLowerCase();
@@ -20,10 +23,25 @@ export async function GET() {
   try {
     const supabaseAdmin = getSupabaseAdmin();
     const maxProducts = getWooCatalogLimit();
-    const wooProducts = await fetchAllWooProducts(
-      maxProducts != null ? { maxProducts } : undefined,
-    );
-    const productIds = wooProducts.map((product) => product.id);
+    let cacheQuery = supabaseAdmin
+      .from("woo_product_cache")
+      .select(
+        "woo_product_id, sku, name, base_price, image_url, status, woo_updated_at, synced_at",
+      )
+      .order("woo_updated_at", { ascending: false, nullsFirst: false });
+
+    if (maxProducts != null) {
+      cacheQuery = cacheQuery.limit(maxProducts);
+    }
+
+    const { data: cachedProducts, error: cacheError } = await cacheQuery;
+
+    if (cacheError) {
+      return NextResponse.json({ error: cacheError.message }, { status: 500 });
+    }
+
+    const cacheRows = (cachedProducts ?? []) as WooProductCacheRecord[];
+    const productIds = cacheRows.map((product) => product.woo_product_id);
 
     let wholesaleRows: WholesaleProductRecord[] = [];
 
@@ -46,17 +64,15 @@ export async function GET() {
       wholesaleRows.map((row) => [row.woo_product_id, row]),
     );
 
-    const products: AdminProduct[] = wooProducts.map((product) => {
-      const wholesaleData = wholesaleMap.get(product.id);
-      const rawPrice =
-        product.price || product.sale_price || product.regular_price || "0";
+    const products: AdminProduct[] = cacheRows.map((product) => {
+      const wholesaleData = wholesaleMap.get(product.woo_product_id);
 
       return {
-        id: product.id,
+        id: product.woo_product_id,
         name: product.name,
         sku: product.sku ?? "",
-        base_price: Number(rawPrice),
-        image: product.images?.[0]?.src ?? null,
+        base_price: Number(product.base_price || 0),
+        image: product.image_url ?? null,
         is_active: wholesaleData?.is_active ?? false,
         min_quantity: wholesaleData?.min_quantity ?? 1,
         custom_price: wholesaleData?.custom_price ?? null,

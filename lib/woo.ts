@@ -4,6 +4,8 @@ export type WooProduct = {
   id: number;
   name: string;
   sku: string;
+  status: string;
+  date_modified_gmt: string | null;
   price: string;
   regular_price: string;
   sale_price: string;
@@ -73,4 +75,10 @@ export async function fetchAllWooProducts(options?: FetchWooProductsOptions) {
   }
 
   return products;
+}
+
+export async function fetchWooProductById(productId: number) {
+  const woo = getWooClient();
+  const { data } = await woo.get(`products/${productId}`);
+  return data as WooProduct;
 }

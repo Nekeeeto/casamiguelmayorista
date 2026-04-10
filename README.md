@@ -25,6 +25,7 @@ Panel de administración B2B Headless para habilitar/deshabilitar productos mayo
 ## SQL en Supabase
 
 Ejecutar `supabase/schema.sql` en el SQL Editor del proyecto.
+Luego ejecutar `supabase/schema_phase2_cache.sql` para crear la tabla cache de catálogo Woo.
 
 ## Desarrollo
 
@@ -39,7 +40,21 @@ Abrir `http://localhost:3000/admin`.
 
 - `app/admin/page.tsx` panel admin
 - `components/admin/products-table.tsx` grilla de catálogo y toggles
-- `app/api/products/route.ts` catálogo Woo + estado mayorista
+- `app/api/products/route.ts` catálogo desde cache Supabase + estado mayorista
 - `app/api/products/toggle/route.ts` toggle activo/inactivo en Supabase
+- `app/api/sync/woo/route.ts` sync manual/cron completo Woo -> cache
+- `app/api/webhooks/woocommerce/route.ts` sync incremental por cambios de Woo
 - `lib/woo.ts` cliente WooCommerce
+- `lib/catalog-sync.ts` mapeo y upsert/delete de cache
 - `lib/supabase-admin.ts` cliente server-side Supabase
+
+## Flujo de sincronización recomendado
+
+1. Seed inicial:
+   - Hacer `POST /api/sync/woo` con header `Authorization: Bearer <WHOLESALE_SYNC_TOKEN>`.
+2. Incremental:
+   - Configurar webhooks de Woo a `POST /api/webhooks/woocommerce`.
+   - Topic recomendado: `product.created`, `product.updated`, `product.deleted`.
+   - Secret del webhook en Woo = `WOO_WEBHOOK_SECRET`.
+3. Respaldo automático:
+   - `vercel.json` define cron cada 6h hacia `/api/sync/woo` (header `x-vercel-cron`).
