@@ -4,10 +4,25 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import type { AdminProduct, WholesaleProductRecord } from "@/lib/types";
 import { fetchAllWooProducts } from "@/lib/woo";
 
+function getWooCatalogLimit(): number | undefined {
+  const raw = process.env.WHOLESALE_CATALOG_LIMIT?.trim().toLowerCase();
+  if (raw === "all" || raw === "0" || raw === "") {
+    return undefined;
+  }
+  if (!raw) {
+    return 5;
+  }
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
 export async function GET() {
   try {
     const supabaseAdmin = getSupabaseAdmin();
-    const wooProducts = await fetchAllWooProducts();
+    const maxProducts = getWooCatalogLimit();
+    const wooProducts = await fetchAllWooProducts(
+      maxProducts != null ? { maxProducts } : undefined,
+    );
     const productIds = wooProducts.map((product) => product.id);
 
     let wholesaleRows: WholesaleProductRecord[] = [];

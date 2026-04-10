@@ -20,6 +20,8 @@ Panel de administración B2B Headless para habilitar/deshabilitar productos mayo
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
 
+3. **Catálogo en el admin (opcional):** si no definís `WHOLESALE_CATALOG_LIMIT`, por defecto se cargan **5** productos (rápido para probar). Para traer **todo** el catálogo (lento en tiendas grandes), definí `WHOLESALE_CATALOG_LIMIT=all` en `.env.local` y en Vercel.
+
 ## SQL en Supabase
 
 Ejecutar `supabase/schema.sql` en el SQL Editor del proyecto.

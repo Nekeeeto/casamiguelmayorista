@@ -27,8 +27,27 @@ function getWooClient() {
   });
 }
 
-export async function fetchAllWooProducts() {
+export type FetchWooProductsOptions = {
+  /** If set, stop after this many products (single or paginated fetch). */
+  maxProducts?: number;
+};
+
+export async function fetchAllWooProducts(options?: FetchWooProductsOptions) {
   const woo = getWooClient();
+  const maxProducts = options?.maxProducts;
+
+  if (maxProducts != null && maxProducts > 0) {
+    const { data } = await woo.get("products", {
+      per_page: Math.min(100, maxProducts),
+      page: 1,
+      status: "publish",
+      orderby: "date",
+      order: "desc",
+    });
+
+    return (data as WooProduct[]).slice(0, maxProducts);
+  }
+
   const products: WooProduct[] = [];
   let page = 1;
   let hasMore = true;
