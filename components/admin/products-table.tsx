@@ -94,6 +94,7 @@ export function ProductsTable() {
       const result = (await response.json()) as {
         ok?: boolean;
         synced_products?: number;
+        synced_categories?: number;
         error?: string;
       };
 
@@ -101,8 +102,13 @@ export function ProductsTable() {
         throw new Error(result.error ?? "No se pudo sincronizar el catálogo.");
       }
 
+      const lineaCategorias =
+        typeof result.synced_categories === "number"
+          ? ` · ${result.synced_categories} categorias Woo`
+          : "";
+
       setSuccessMessage(
-        `Sincronización completa: ${result.synced_products ?? 0} productos.`,
+        `Sincronización completa: ${result.synced_products ?? 0} productos${lineaCategorias}.`,
       );
       setPage(1);
       await loadProducts(1);

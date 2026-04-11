@@ -1,33 +1,59 @@
 @import "tailwindcss";
 
 :root {
-  --background: 222 47% 8%;
-  --foreground: 210 40% 98%;
-  --card: 222 42% 12%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222 42% 12%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 194 99% 35%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 222 35% 18%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 222 30% 20%;
-  --muted-foreground: 215 20% 70%;
-  --accent: 197 95% 36%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 70% 42%;
+  --background: 210 20% 98%;
+  --foreground: 214 24% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 214 24% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 214 24% 14%;
+  --primary: 194 98% 35%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 30% 94%;
+  --secondary-foreground: 214 24% 14%;
+  --muted: 210 26% 92%;
+  --muted-foreground: 215 14% 42%;
+  --accent: 24 36% 46%;
+  --accent-foreground: 25 35% 97%;
+  --destructive: 0 72% 46%;
   --destructive-foreground: 0 0% 100%;
-  --border: 222 28% 22%;
-  --input: 222 28% 22%;
-  --ring: 194 99% 35%;
+  --border: 214 22% 86%;
+  --input: 214 22% 86%;
+  --ring: 194 98% 35%;
   --radius: 0.75rem;
 
-  --surface: 223 45% 10%;
-  --surface-elevated: 222 42% 12%;
-  --surface-muted: 222 30% 16%;
+  --surface: 210 20% 98%;
+  --surface-elevated: 0 0% 100%;
+  --surface-muted: 210 30% 94%;
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+.dark {
+  --background: 220 26% 10%;
+  --foreground: 210 20% 92%;
+  --card: 220 24% 13%;
+  --card-foreground: 210 20% 92%;
+  --popover: 220 24% 13%;
+  --popover-foreground: 210 20% 92%;
+  --primary: 194 90% 45%;
+  --primary-foreground: 214 38% 10%;
+  --secondary: 220 16% 20%;
+  --secondary-foreground: 210 20% 92%;
+  --muted: 220 15% 18%;
+  --muted-foreground: 216 12% 64%;
+  --accent: 24 34% 56%;
+  --accent-foreground: 220 26% 10%;
+  --destructive: 0 68% 54%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 16% 24%;
+  --input: 220 16% 24%;
+  --ring: 194 90% 45%;
+
+  --surface: 220 26% 10%;
+  --surface-elevated: 220 24% 13%;
+  --surface-muted: 220 15% 18%;
 }
 
 @theme inline {
@@ -66,4 +92,16 @@ body {
 
 body {
   @apply bg-background text-foreground;
+}
+
+/* react-day-picker: sustituir acentos por tokens del tema */
+.rdp-root {
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-accent-background-color: hsl(var(--primary) / 0.16);
+  --rdp-range_start-date-background-color: hsl(var(--primary));
+  --rdp-range_end-date-background-color: hsl(var(--primary));
+  --rdp-range_start-color: hsl(var(--primary-foreground));
+  --rdp-range_end-color: hsl(var(--primary-foreground));
+  --rdp-day_button-border-radius: var(--radius);
+  --rdp-today-color: hsl(var(--primary));
 }

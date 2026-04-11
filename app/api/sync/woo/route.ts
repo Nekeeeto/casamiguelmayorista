@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { upsertWooProductsCache } from "@/lib/catalog-sync";
+import {
+  upsertWooCategoriesCache,
+  upsertWooProductsCache,
+} from "@/lib/catalog-sync";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { fetchAllWooProducts } from "@/lib/woo";
+import { fetchAllWooProductCategories, fetchAllWooProducts } from "@/lib/woo";
 
 function isAuthorized(req: Request) {
   const isVercelCron = req.headers.get("x-vercel-cron") === "1";
@@ -36,12 +39,20 @@ export async function POST(req: Request) {
     }
 
     const supabaseAdmin = getSupabaseAdmin();
-    const products = await fetchAllWooProducts();
-    await upsertWooProductsCache(supabaseAdmin, products);
+    const [productos, categorias] = await Promise.all([
+      fetchAllWooProducts(),
+      fetchAllWooProductCategories(),
+    ]);
+
+    await Promise.all([
+      upsertWooCategoriesCache(supabaseAdmin, categorias),
+      upsertWooProductsCache(supabaseAdmin, productos),
+    ]);
 
     return NextResponse.json({
       ok: true,
-      synced_products: products.length,
+      synced_products: productos.length,
+      synced_categories: categorias.length,
       synced_at: new Date().toISOString(),
     });
   } catch (error) {

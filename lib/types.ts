@@ -16,6 +16,8 @@ export type WooProductCacheRecord = {
   status: string;
   woo_updated_at: string | null;
   synced_at: string;
+  categoria_ids?: number[];
+  ventas_web?: number;
 };
 
 export type AdminProduct = {

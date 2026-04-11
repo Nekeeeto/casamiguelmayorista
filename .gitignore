@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# Costos CSV local (import script; opcional versionar quitando esta línea)
+/data/costos-golosinas.csv
+
 # vercel
 .vercel
 
