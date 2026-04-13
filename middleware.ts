@@ -2,7 +2,14 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const RUTAS_TIENDA = ["/panel", "/carrito", "/pedidos"];
-const RUTAS_ADMIN = ["/admin", "/usuarios", "/inventario", "/analiticas", "/herramientas-ia"];
+const RUTAS_ADMIN = [
+  "/admin",
+  "/usuarios",
+  "/inventario",
+  "/analiticas",
+  "/herramientas-ia",
+  "/proveedores",
+];
 
 function esRutaProtegida(pathname: string, rutas: string[]) {
   return rutas.some((ruta) => pathname === ruta || pathname.startsWith(`${ruta}/`));
@@ -15,26 +22,46 @@ function redirigir(request: NextRequest, destino: string) {
   return NextResponse.redirect(url);
 }
 
+function redirigirShopManagerInventario(request: NextRequest) {
+  const url = request.nextUrl.clone();
+  url.pathname = "/admin";
+  url.searchParams.set("tab", "inventario");
+  url.searchParams.set("page", "1");
+  return NextResponse.redirect(url);
+}
+
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
-  /** Assets y API: no tocar cookies ni auth (evita romper CSS/JS de `/_next`). */
-  if (pathname.startsWith("/_next") || pathname.startsWith("/api/")) {
-    return NextResponse.next({ request });
+  /**
+   * Assets, API y utilidades de Next: no mutar la request ni cookies.
+   * Si el middleware corre aquí, la app puede quedar sin CSS/JS (pantalla “sin Tailwind”).
+   */
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/.well-known") ||
+    pathname.startsWith("/__nextjs") ||
+    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/ingest") ||
+    pathname.includes("webpack-hmr") ||
+    pathname.includes("hot-update")
+  ) {
+    return NextResponse.next();
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    return NextResponse.next({ request });
+    return NextResponse.next();
   }
 
   const tiendaProtegida = esRutaProtegida(pathname, RUTAS_TIENDA);
   const adminProtegida = esRutaProtegida(pathname, RUTAS_ADMIN);
 
   if (!tiendaProtegida && !adminProtegida) {
-    return NextResponse.next({ request });
+    return NextResponse.next();
   }
 
   let response = NextResponse.next({ request });
@@ -91,8 +118,29 @@ export async function middleware(request: NextRequest) {
       return redirigir(request, "/sala-espera");
     }
 
-    if (adminProtegida && rol !== "admin") {
+    const accesoStaffPanel = rol === "admin" || rol === "shop_manager";
+    if (adminProtegida && !accesoStaffPanel) {
       return redirigir(request, "/no-autorizado");
+    }
+
+    if (adminProtegida && rol === "shop_manager") {
+      if (pathname.startsWith("/admin/pedidos")) {
+        return response;
+      }
+      if (pathname === "/inventario" || pathname.startsWith("/inventario/")) {
+        return response;
+      }
+      if (pathname.startsWith("/admin/inventario")) {
+        return response;
+      }
+      if (pathname === "/admin") {
+        const pestana = request.nextUrl.searchParams.get("tab");
+        if (pestana === "inventario") {
+          return response;
+        }
+        return redirigirShopManagerInventario(request);
+      }
+      return redirigirShopManagerInventario(request);
     }
 
     return response;

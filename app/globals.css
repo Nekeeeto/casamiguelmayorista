@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* Raíz del repo: escaneo completo (más estable en Windows con espacios en la ruta). */
+@import "tailwindcss" source("..");
+@plugin "tailwindcss-animate";
 
 :root {
   --background: 210 20% 98%;
@@ -104,4 +106,39 @@ body {
   --rdp-range_end-color: hsl(var(--primary-foreground));
   --rdp-day_button-border-radius: var(--radius);
   --rdp-today-color: hsl(var(--primary));
+}
+
+/* Barra de progreso indeterminada — skeleton carga pedidos admin */
+@keyframes pedidos-carga-barra {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.pedidos-carga-barra {
+  animation: pedidos-carga-barra 1.15s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pedidos-carga-barra {
+    animation: none;
+    transform: translateX(30%);
+  }
+}
+
+/* Barra indeterminada — navegación global (GlobalPreloader) */
+.global-preloader-nav-bar {
+  animation: pedidos-carga-barra 1.05s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-preloader-nav-bar {
+    animation: none;
+    transform: translateX(0);
+    width: 40%;
+    margin-left: 30%;
+  }
 }

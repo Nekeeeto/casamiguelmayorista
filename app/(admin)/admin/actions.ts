@@ -14,11 +14,12 @@ import {
 import { upsertProveedorProducto } from "@/lib/producto-proveedor-upsert";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { getSupabaseServidor } from "@/lib/supabase-servidor";
+import { requireAdminOrShopManagerActor, requireStrictAdminActor } from "@/lib/servidor-auth-panel";
 import { updateWooProductPartial } from "@/lib/woo";
 
 export type { FilaMayoristaUpsert };
 
-type EstadoUsuario = "pendiente" | "aprobado" | "bloqueado" | "admin";
+type EstadoUsuario = "pendiente" | "aprobado" | "bloqueado" | "admin" | "shop_manager";
 
 function resolverRolYBloqueo(estado: EstadoUsuario) {
   if (estado === "pendiente") {
@@ -30,6 +31,9 @@ function resolverRolYBloqueo(estado: EstadoUsuario) {
   if (estado === "admin") {
     return { rol: "admin" as const, bloqueado: false };
   }
+  if (estado === "shop_manager") {
+    return { rol: "shop_manager" as const, bloqueado: false };
+  }
   return { rol: "aprobado" as const, bloqueado: false };
 }
 
@@ -39,29 +43,6 @@ function revalidarAdmin() {
   revalidatePath("/admin/inventario");
   revalidatePath("/inventario");
   revalidatePath("/proveedores");
-}
-
-async function requireAdminActor() {
-  const supabaseServidor = await getSupabaseServidor();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabaseServidor.auth.getUser();
-  if (authError || !user) {
-    throw new Error("Sesión inválida.");
-  }
-  const supabaseAdmin = getSupabaseAdmin();
-  const { data: perfil, error: perfilError } = await supabaseAdmin
-    .from("perfiles_usuarios")
-    .select("rol")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (perfilError) {
-    throw new Error(perfilError.message);
-  }
-  if (perfil?.rol !== "admin") {
-    throw new Error("Solo los administradores pueden realizar esta acción.");
-  }
 }
 
 export type ResultadoGuardadoInventarioBulk =
@@ -79,7 +60,7 @@ export async function guardarCambiosInventarioBulkAction(
   items: FilaMayoristaUpsert[],
 ): Promise<ResultadoGuardadoInventarioBulk> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
     if (!Array.isArray(items) || items.length === 0) {
       return { ok: false, error: "No hay cambios para guardar." };
     }
@@ -104,7 +85,7 @@ export async function guardarPrecioWebInventarioBulkAction(
   items: FilaPrecioWebBulk[],
 ): Promise<ResultadoGuardadoInventarioBulk> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
     if (!Array.isArray(items) || items.length === 0) {
       return { ok: false, error: "No hay cambios de precio web para guardar." };
     }
@@ -178,7 +159,7 @@ export async function actualizarStockProductoAdminAction(
   stockStatus: StockStatusWoo,
 ): Promise<ResultadoActualizarStockAdmin> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
     if (!Number.isFinite(wooProductId) || wooProductId <= 0) {
       return { ok: false, error: "Producto inválido." };
     }
@@ -230,7 +211,7 @@ export async function actualizarProveedorProductoAdminAction(
   proveedorId: string | null,
 ): Promise<ResultadoActualizarProveedorAdmin> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
     if (!Number.isFinite(wooProductId) || wooProductId <= 0) {
       return { ok: false, error: "Producto inválido." };
     }
@@ -257,7 +238,7 @@ export async function importarCostosCsvAction(
   formData: FormData,
 ): Promise<EstadoImportCostosCsv> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
 
     const archivo = formData.get("archivo");
     const idxSkuRaw = String(formData.get("columna_sku_idx") ?? "").trim();
@@ -338,6 +319,8 @@ export async function importarCostosCsvAction(
 }
 
 export async function crearUsuarioAdminAction(formData: FormData) {
+  await requireStrictAdminActor();
+
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const nombreEmpresa = String(formData.get("nombre_empresa") ?? "").trim();
@@ -347,7 +330,7 @@ export async function crearUsuarioAdminAction(formData: FormData) {
   if (!email || !password) {
     throw new Error("Email y password son obligatorios.");
   }
-  if (!["pendiente", "aprobado", "bloqueado", "admin"].includes(estado)) {
+  if (!["pendiente", "aprobado", "bloqueado", "admin", "shop_manager"].includes(estado)) {
     throw new Error("Estado invalido.");
   }
 
@@ -395,12 +378,19 @@ export async function actualizarUsuarioAdminAction(formData: FormData) {
   if (!idUsuario || !email) {
     throw new Error("Faltan datos obligatorios del usuario.");
   }
-  if (!["pendiente", "aprobado", "bloqueado", "admin"].includes(estado)) {
+  if (!["pendiente", "aprobado", "bloqueado", "admin", "shop_manager"].includes(estado)) {
     throw new Error("Estado invalido.");
   }
 
-  const { rol, bloqueado } = resolverRolYBloqueo(estado);
+  await requireStrictAdminActor();
+
   const supabaseAdmin = getSupabaseAdmin();
+
+  const { data: perfilActual } = await supabaseAdmin
+    .from("perfiles_usuarios")
+    .select("rol")
+    .eq("id", idUsuario)
+    .maybeSingle();
 
   const supabaseServidor = await getSupabaseServidor();
   const {
@@ -411,11 +401,11 @@ export async function actualizarUsuarioAdminAction(formData: FormData) {
     throw new Error("Sesion invalida.");
   }
 
-  const { data: perfilActual } = await supabaseAdmin
-    .from("perfiles_usuarios")
-    .select("rol")
-    .eq("id", idUsuario)
-    .maybeSingle();
+  let { rol, bloqueado } = resolverRolYBloqueo(estado);
+  if (perfilActual?.rol === "shop_manager" && estado === "bloqueado") {
+    rol = "shop_manager";
+    bloqueado = true;
+  }
 
   if (
     usuarioActor.id === idUsuario &&
@@ -462,6 +452,8 @@ export async function borrarUsuarioAdminAction(formData: FormData) {
     throw new Error("No se recibio el id del usuario.");
   }
 
+  await requireStrictAdminActor();
+
   const supabaseServidor = await getSupabaseServidor();
   const {
     data: { user: usuarioActor },
@@ -482,7 +474,7 @@ export async function borrarUsuarioAdminAction(formData: FormData) {
 
 /** Conservado por compatibilidad (formularios legacy); el inventario usa guardarCambiosInventarioBulkAction. */
 export async function actualizarProductoMayoristaAction(formData: FormData) {
-  await requireAdminActor();
+  await requireAdminOrShopManagerActor();
 
   const wooProductId = Number(formData.get("woo_product_id"));
   const nombre = String(formData.get("nombre") ?? "").trim();

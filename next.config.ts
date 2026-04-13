@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  transpilePackages: ["@react-pdf/renderer"],
   experimental: {
     serverActions: {
       /** Imágenes nuevas van como data URL en el patch Woo (base64). */

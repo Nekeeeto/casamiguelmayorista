@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { getSupabaseServidor } from "@/lib/supabase-servidor";
+import { rolPuedeInventarioPedidos } from "@/lib/rol-panel";
 
 /**
  * Verifica sesión + rol admin en rutas API (el middleware no cubre /api).
@@ -24,8 +25,8 @@ export async function requireAdminApi(): Promise<
   if (perfilError) {
     return { ok: false, status: 500, message: perfilError.message };
   }
-  if (perfil?.rol !== "admin") {
-    return { ok: false, status: 403, message: "Solo administradores." };
+  if (!rolPuedeInventarioPedidos(perfil?.rol)) {
+    return { ok: false, status: 403, message: "Solo personal autorizado del panel." };
   }
   return { ok: true };
 }

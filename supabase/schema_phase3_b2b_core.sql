@@ -26,7 +26,7 @@ grant execute on function public.es_admin() to authenticated;
 -- =========================================================
 create table if not exists public.perfiles_usuarios (
   id uuid primary key references auth.users (id) on delete cascade,
-  rol text not null default 'pendiente' check (rol in ('admin', 'pendiente', 'aprobado')),
+  rol text not null default 'pendiente' check (rol in ('admin', 'pendiente', 'aprobado', 'shop_manager')),
   nombre_empresa text,
   rut text,
   datos_onboarding jsonb not null default '{}'::jsonb,

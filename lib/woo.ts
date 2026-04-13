@@ -216,6 +216,13 @@ export async function fetchWooProductById(productId: number) {
   return data as WooProduct;
 }
 
+/** Pedido Woo REST crudo (útil para inspeccionar `meta_data`, envíos, etc.). */
+export async function fetchWooOrderRawById(orderId: number) {
+  const woo = getWooClient();
+  const { data } = await woo.get(`orders/${orderId}`, { context: "edit" });
+  return data as Record<string, unknown>;
+}
+
 /** Respuesta cruda completa de Woo (sin filtrar campos). */
 export async function fetchWooProductRawById(productId: number) {
   const woo = getWooClient();

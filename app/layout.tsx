@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { GlobalPreloader } from "@/components/global-preloader";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const geistSans = Geist({
@@ -30,7 +31,10 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full bg-background text-foreground font-sans">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <GlobalPreloader />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

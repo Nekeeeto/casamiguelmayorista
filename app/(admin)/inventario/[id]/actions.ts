@@ -12,35 +12,7 @@ import { fetchWooOrdersInDateRange } from "@/lib/woo-orders";
 import { updateWooProductPartial } from "@/lib/woo";
 import { upsertProveedorProducto } from "@/lib/producto-proveedor-upsert";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { getSupabaseServidor } from "@/lib/supabase-servidor";
-
-async function requireAdminActor() {
-  const supabaseServidor = await getSupabaseServidor();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabaseServidor.auth.getUser();
-
-  if (authError || !user) {
-    throw new Error("Sesion invalida.");
-  }
-
-  const supabaseAdmin = getSupabaseAdmin();
-  const { data: perfil, error: perfilError } = await supabaseAdmin
-    .from("perfiles_usuarios")
-    .select("rol")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (perfilError) {
-    throw new Error(perfilError.message);
-  }
-  if (perfil?.rol !== "admin") {
-    throw new Error("Solo administradores.");
-  }
-
-  return { actorId: user.id };
-}
+import { requireAdminOrShopManagerActor } from "@/lib/servidor-auth-panel";
 
 export type ResultadoActualizarCampoWoo =
   | { ok: true; valor: unknown }
@@ -56,7 +28,7 @@ export async function actualizarCampoWooProductoAction(
   valor: unknown,
 ): Promise<ResultadoActualizarCampoWoo> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
 
     if (!Number.isFinite(productId) || productId <= 0) {
       return { ok: false, error: "ID de producto invalido." };
@@ -85,7 +57,7 @@ export async function actualizarCamposWooProductoAction(
   patch: Record<string, unknown>,
 ): Promise<ResultadoActualizarCamposWoo> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
 
     if (!Number.isFinite(productId) || productId <= 0) {
       return { ok: false, error: "ID de producto invalido." };
@@ -155,7 +127,7 @@ export async function actualizarCampoB2BProductoAction(
   valor: unknown,
 ): Promise<ResultadoActualizarCampoB2B> {
   try {
-    const { actorId } = await requireAdminActor();
+    const { actorId } = await requireAdminOrShopManagerActor();
     if (!Number.isFinite(productId) || productId <= 0) {
       return { ok: false, error: "ID de producto invalido." };
     }
@@ -341,7 +313,7 @@ export async function actualizarProveedorProductoAction(
   proveedorId: string | null,
 ): Promise<ResultadoActualizarProveedorProducto> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
     if (!Number.isFinite(productId) || productId <= 0) {
       return { ok: false, error: "ID de producto inválido." };
     }
@@ -370,7 +342,7 @@ export async function cargarSerieRentabilidadWebProductoAction(
   hasta: string,
 ): Promise<ResultadoSerieRentabilidadWebProducto> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
 
     if (!Number.isFinite(productId) || productId <= 0) {
       return { ok: false, error: "ID de producto invalido." };
@@ -445,7 +417,7 @@ export async function cargarSerieCostoProductoHistorialAction(
   hasta: string,
 ): Promise<ResultadoSerieCostoHistorialProducto> {
   try {
-    await requireAdminActor();
+    await requireAdminOrShopManagerActor();
 
     if (!Number.isFinite(productId) || productId <= 0) {
       return { ok: false, error: "ID de producto invalido." };

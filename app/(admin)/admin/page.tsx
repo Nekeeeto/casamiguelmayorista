@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import {
@@ -36,7 +37,7 @@ type EstadoPestana = "usuarios" | "inventario" | "analiticas";
 
 type PerfilUsuario = {
   id: string;
-  rol: "admin" | "pendiente" | "aprobado";
+  rol: "admin" | "pendiente" | "aprobado" | "shop_manager";
   nombre_empresa: string | null;
   rut: string | null;
   datos_onboarding: { bloqueado?: boolean } | null;
@@ -47,7 +48,7 @@ type UsuarioAdmin = {
   email: string;
   nombre_empresa: string | null;
   rut: string | null;
-  estado: "pendiente" | "aprobado" | "bloqueado" | "admin";
+  estado: "pendiente" | "aprobado" | "bloqueado" | "admin" | "shop_manager";
   es_admin: boolean;
 };
 
@@ -60,6 +61,9 @@ function resolverEstado(perfil: PerfilUsuario | undefined) {
   }
   if (perfil.rol === "admin") {
     return "admin" as const;
+  }
+  if (perfil.rol === "shop_manager") {
+    return "shop_manager" as const;
   }
   return perfil.rol;
 }
@@ -115,37 +119,51 @@ export default async function AdminGeneralPage({
   } = await supabaseServidor.auth.getUser();
   const idUsuarioSesion = usuarioSesion?.id ?? null;
 
-  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-  if (authError) {
-    throw new Error(authError.message);
-  }
-
-  const { data: perfiles, error: perfilesError } = await supabaseAdmin
+  const { data: perfilSesion } = await supabaseServidor
     .from("perfiles_usuarios")
-    .select("id, rol, nombre_empresa, rut, datos_onboarding")
-    .order("creado_en", { ascending: false });
-  if (perfilesError) {
-    throw new Error(perfilesError.message);
+    .select("rol")
+    .eq("id", idUsuarioSesion ?? "")
+    .maybeSingle();
+  const esShopManager = perfilSesion?.rol === "shop_manager";
+
+  if (esShopManager && pestanaActiva !== "inventario") {
+    redirect("/admin?tab=inventario&page=1");
   }
 
-  const perfilPorId = new Map(
-    ((perfiles as PerfilUsuario[]) ?? []).map((perfil) => [perfil.id, perfil]),
-  );
+  let usuarios: UsuarioAdmin[] = [];
+  if (!esShopManager) {
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
+    if (authError) {
+      throw new Error(authError.message);
+    }
 
-  const usuarios: UsuarioAdmin[] = (authData?.users ?? []).map((authUser) => {
-    const perfil = perfilPorId.get(authUser.id);
-    return {
-      id: authUser.id,
-      email: authUser.email ?? "",
-      nombre_empresa: perfil?.nombre_empresa ?? null,
-      rut: perfil?.rut ?? null,
-      estado: resolverEstado(perfil),
-      es_admin: perfil?.rol === "admin",
-    };
-  });
+    const { data: perfiles, error: perfilesError } = await supabaseAdmin
+      .from("perfiles_usuarios")
+      .select("id, rol, nombre_empresa, rut, datos_onboarding")
+      .order("creado_en", { ascending: false });
+    if (perfilesError) {
+      throw new Error(perfilesError.message);
+    }
+
+    const perfilPorId = new Map(
+      ((perfiles as PerfilUsuario[]) ?? []).map((perfil) => [perfil.id, perfil]),
+    );
+
+    usuarios = (authData?.users ?? []).map((authUser) => {
+      const perfil = perfilPorId.get(authUser.id);
+      return {
+        id: authUser.id,
+        email: authUser.email ?? "",
+        nombre_empresa: perfil?.nombre_empresa ?? null,
+        rut: perfil?.rut ?? null,
+        estado: resolverEstado(perfil),
+        es_admin: perfil?.rol === "admin",
+      };
+    });
+  }
 
   let filasCategoriasWoo: FilaCategoriaCache[] = [];
   let analyticsDesde = "";
@@ -215,7 +233,10 @@ export default async function AdminGeneralPage({
 
   return (
     <section className="space-y-6">
-      <AdminDashboardHeader pestanaActiva={pestanaActiva} />
+      <AdminDashboardHeader
+        pestanaActiva={pestanaActiva}
+        variant={esShopManager ? "operaciones" : "completo"}
+      />
 
       {pestanaActiva === "usuarios" ? (
         <Card className="bg-card">
@@ -244,6 +265,7 @@ export default async function AdminGeneralPage({
                   <option value="aprobado">Aprobado</option>
                   <option value="bloqueado">Bloqueado</option>
                   <option value="admin">Administrador</option>
+                  <option value="shop_manager">Encargado tienda (inventario y pedidos)</option>
                 </select>
                 <Button type="submit">Crear</Button>
               </div>
@@ -309,6 +331,7 @@ export default async function AdminGeneralPage({
                           <option value="aprobado">Aprobado</option>
                           <option value="bloqueado">Bloqueado</option>
                           <option value="admin">Administrador</option>
+                          <option value="shop_manager">Encargado tienda</option>
                         </select>
                       </td>
                       <td className="px-4 py-3 text-right">
