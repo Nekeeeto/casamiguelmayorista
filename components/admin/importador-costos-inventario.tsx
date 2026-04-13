@@ -18,7 +18,12 @@ type FilaHistorial = {
 
 type RespuestaHistorial = { ok: true; filas: FilaHistorial[] } | { ok: false; error: string };
 
-export function ImportadorCostosInventario() {
+type PropsImportador = {
+  /** Sin borde superior ni margen extra (p. ej. dentro del panel técnico). */
+  embebido?: boolean;
+};
+
+export function ImportadorCostosInventario({ embebido = false }: PropsImportador) {
   const [estado, formAction, pendiente] = useActionState(importarCostosCsvAction, null);
 
   const [encabezados, setEncabezados] = useState<string[]>([]);
@@ -72,7 +77,11 @@ export function ImportadorCostosInventario() {
   }
 
   return (
-    <div className="mt-8 space-y-4 border-t border-border pt-6">
+    <div
+      className={
+        embebido ? "space-y-4" : "mt-8 space-y-4 border-t border-border pt-6"
+      }
+    >
       <div className="rounded-lg border border-border bg-muted/20 p-4">
         <div>
           <h3 className="text-sm font-semibold text-foreground">Importar costos (CSV)</h3>

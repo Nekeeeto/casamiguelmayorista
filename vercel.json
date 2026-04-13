@@ -3,6 +3,10 @@
     {
       "path": "/api/sync",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/ofertas-semanales",
+      "schedule": "0 3 * * 1"
     }
   ]
 }

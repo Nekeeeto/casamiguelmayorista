@@ -3,7 +3,12 @@ import { BarChart3, Bot, Building2, LayoutGrid, Users } from "lucide-react";
 
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-type PestanaAdminHeader = "usuarios" | "inventario" | "analiticas" | "proveedores";
+type PestanaAdminHeader =
+  | "usuarios"
+  | "inventario"
+  | "analiticas"
+  | "proveedores"
+  | "herramientasIa";
 
 export function AdminDashboardHeader({ pestanaActiva }: { pestanaActiva: PestanaAdminHeader }) {
   return (
@@ -62,7 +67,11 @@ export function AdminDashboardHeader({ pestanaActiva }: { pestanaActiva: Pestana
           </Link>
           <Link
             href="/herramientas-ia"
-            className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+            className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
+              pestanaActiva === "herramientasIa"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
           >
             <Bot className="size-4 shrink-0" aria-hidden />
             Herramientas IA

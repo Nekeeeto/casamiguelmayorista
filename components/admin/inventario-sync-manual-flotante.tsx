@@ -7,11 +7,15 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+type PropsSync = {
+  /** `flotante`: botón fijo abajo a la derecha. `integrado`: bloque al pie del contenido. */
+  variante?: "flotante" | "integrado";
+};
+
 /**
  * Sincroniza categorías y productos Woo → Supabase en una sola llamada (POST /api/sync).
- * Botón fijo visible mientras se navega el inventario.
  */
-export function InventarioSyncManualFlotante() {
+export function InventarioSyncManualFlotante({ variante = "flotante" }: PropsSync) {
   const router = useRouter();
   const [sincronizando, setSincronizando] = useState(false);
   const [feedback, setFeedback] = useState<{ texto: string; ok: boolean } | null>(null);
@@ -45,39 +49,65 @@ export function InventarioSyncManualFlotante() {
     }
   }, [router]);
 
+  const contenidoFeedback = feedback ? (
+    <p
+      className={cn(
+        "rounded-lg border px-3 py-2 text-xs shadow-sm",
+        variante === "flotante" && "shadow-md",
+        feedback.ok
+          ? "border-border bg-card text-foreground"
+          : "border-destructive/50 bg-destructive/10 text-destructive",
+      )}
+      role="status"
+      aria-live="polite"
+    >
+      {feedback.texto}
+    </p>
+  ) : null;
+
+  const boton = (
+    <Button
+      type="button"
+      size={variante === "integrado" ? "default" : "lg"}
+      className={cn(
+        "gap-2",
+        variante === "flotante"
+          ? "pointer-events-auto rounded-full px-5 shadow-lg"
+          : "w-full sm:w-auto",
+      )}
+      disabled={sincronizando}
+      aria-busy={sincronizando}
+      onClick={() => void sincronizar()}
+    >
+      <RefreshCw className={cn("size-4 shrink-0", sincronizando && "animate-spin")} aria-hidden />
+      {sincronizando ? "Sincronizando…" : "Sincronizar Woo → Supabase"}
+    </Button>
+  );
+
+  if (variante === "integrado") {
+    return (
+      <div className="rounded-lg border border-border bg-muted/15 p-4">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Una sola llamada <span className="font-mono text-foreground">POST /api/sync</span>: categorías y productos
+          desde WooCommerce hacia la base local.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {contenidoFeedback}
+          {boton}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="pointer-events-none fixed bottom-6 right-6 z-50 flex max-w-[min(100vw-1.5rem,280px)] flex-col items-end gap-2 pl-4"
       style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
     >
-      {feedback ? (
-        <p
-          className={cn(
-            "pointer-events-auto rounded-lg border px-3 py-2 text-xs shadow-md",
-            feedback.ok
-              ? "border-border bg-card text-foreground"
-              : "border-destructive/50 bg-destructive/10 text-destructive",
-          )}
-          role="status"
-          aria-live="polite"
-        >
-          {feedback.texto}
-        </p>
+      {contenidoFeedback ? (
+        <div className="pointer-events-auto">{contenidoFeedback}</div>
       ) : null}
-      <Button
-        type="button"
-        size="lg"
-        className="pointer-events-auto gap-2 rounded-full px-5 shadow-lg"
-        disabled={sincronizando}
-        aria-busy={sincronizando}
-        onClick={() => void sincronizar()}
-      >
-        <RefreshCw
-          className={cn("size-4 shrink-0", sincronizando && "animate-spin")}
-          aria-hidden
-        />
-        {sincronizando ? "Sincronizando…" : "Sync manual"}
-      </Button>
+      <div className="pointer-events-auto">{boton}</div>
     </div>
   );
 }

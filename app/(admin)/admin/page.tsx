@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AdminDashboardHeader } from "@/components/admin/admin-dashboard-header";
+import { AdminPanelTecnicoDisclosure } from "@/components/admin/admin-panel-tecnico-disclosure";
+import { AnaliticasVentasWebMetaTecnica } from "@/components/admin/analiticas-ventas-web-meta-tecnica";
 import { ImportadorCostosInventario } from "@/components/admin/importador-costos-inventario";
 import { InventarioPanelCliente } from "@/components/admin/inventario-panel-cliente";
 import { InventarioSyncManualFlotante } from "@/components/admin/inventario-sync-manual-flotante";
@@ -342,8 +344,9 @@ export default async function AdminGeneralPage({
             <CardHeader className="w-full flex-col items-stretch gap-2">
               <CardTitle className="text-lg">Inventario General</CardTitle>
               <CardDescription className="w-full max-w-none">
-                Elegí una categoría para ver productos (subcategoría opcional). Podés buscar por nombre, SKU o
-                precio exacto. Abrí un producto para editar precios y costos, o importá costos por CSV al pie.
+                Elegí una categoría para ver productos (subcategoría opcional). Podés buscar por nombre, SKU o precio
+                exacto. Abrí un producto para editar precios y costos. Importación CSV y sincronización Woo están en
+                Herramientas técnicas al final.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -360,10 +363,8 @@ export default async function AdminGeneralPage({
                   }))}
                 />
               </Suspense>
-              <ImportadorCostosInventario />
             </CardContent>
           </Card>
-          <InventarioSyncManualFlotante />
         </>
       ) : (
         <div className="space-y-6">
@@ -416,8 +417,8 @@ export default async function AdminGeneralPage({
                 <CardHeader className="flex-col items-start gap-2">
                   <CardTitle className="text-lg">Ventas Web</CardTitle>
                   <CardDescription>
-                    Pedidos en estados completado y en proceso. Ingresos = suma de totales por línea
-                    de producto (no incluye envío ni fees del pedido). Fechas en GMT según Woo.
+                    Ingresos y margen por líneas de producto (costo desde inventario mayorista). Estados Woo, fechas
+                    GMT y totales del pedido (envío, reembolsos) están en Herramientas técnicas al final.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -443,16 +444,35 @@ export default async function AdminGeneralPage({
                 <AnaliticasVentasWebLazy
                   key={`${analyticsDesde}-${analyticsHasta}-${acategoriaAnaliticaParam}`}
                   datos={cargaAnaliticasVentasWeb.datos}
-                  desde={analyticsDesde}
-                  hasta={analyticsHasta}
                   categoriaFiltroEtiqueta={analyticsEtiquetaCategoriaFiltro}
-                  estadosPedidoWooResumen={estadosPedidoWooAnaliticasResumen()}
                 />
               ) : null}
             </>
           )}
         </div>
       )}
+
+      {pestanaActiva === "inventario" ? (
+        <AdminPanelTecnicoDisclosure titulo="Herramientas técnicas (importación, API y sincronización)">
+          <ImportadorCostosInventario embebido />
+          <InventarioSyncManualFlotante variante="integrado" />
+        </AdminPanelTecnicoDisclosure>
+      ) : null}
+
+      {pestanaActiva === "analiticas" &&
+      subAnalitica === "ventas-web" &&
+      cargaAnaliticasVentasWeb &&
+      cargaAnaliticasVentasWeb.ok ? (
+        <AdminPanelTecnicoDisclosure titulo="Herramientas técnicas (WooCommerce, API y totales del pedido)">
+          <AnaliticasVentasWebMetaTecnica
+            desde={analyticsDesde}
+            hasta={analyticsHasta}
+            estadosPedidoWooResumen={estadosPedidoWooAnaliticasResumen()}
+            resumen={cargaAnaliticasVentasWeb.datos.resumen}
+            categoriaFiltroEtiqueta={analyticsEtiquetaCategoriaFiltro}
+          />
+        </AdminPanelTecnicoDisclosure>
+      ) : null}
     </section>
   );
 }

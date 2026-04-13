@@ -21,10 +21,7 @@ const Dashboard = dynamic(
 
 export function AnaliticasVentasWebLazy(props: {
   datos: ResultadoAnaliticasVentasWeb;
-  desde: string;
-  hasta: string;
   categoriaFiltroEtiqueta?: string | null;
-  estadosPedidoWooResumen?: string;
 }) {
   return <Dashboard {...props} />;
 }

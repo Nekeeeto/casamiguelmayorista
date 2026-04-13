@@ -23,10 +23,7 @@ const PRODUCTOS_POR_PAGINA = 20;
 
 type Props = {
   datos: ResultadoAnaliticasVentasWeb;
-  desde: string;
-  hasta: string;
   categoriaFiltroEtiqueta?: string | null;
-  estadosPedidoWooResumen?: string;
 };
 
 function formatoMoneda(valor: number) {
@@ -58,13 +55,7 @@ function formatoTooltipValor(valor: number | string | (number | string)[]) {
   return Number.isFinite(n) ? formatoMoneda(n) : String(valor);
 }
 
-export function AnaliticasVentasWebDashboard({
-  datos,
-  desde,
-  hasta,
-  categoriaFiltroEtiqueta = null,
-  estadosPedidoWooResumen,
-}: Props) {
+export function AnaliticasVentasWebDashboard({ datos, categoriaFiltroEtiqueta = null }: Props) {
   const { resumen, porDia, porProducto, porCategoria, truncado, productosSinCostoConfigurado } =
     datos;
 
@@ -123,17 +114,8 @@ export function AnaliticasVentasWebDashboard({
             <CardTitle className="text-2xl tabular-nums">{resumen.pedidos}</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            Estados Woo incluidos:{" "}
-            <span className="font-mono text-foreground">{estadosPedidoWooResumen ?? "completed, processing"}</span>.
-            Periodo {desde} → {hasta}. Pedidos con al menos una línea de producto contada:{" "}
-            {resumen.pedidos}. Pedidos devueltos por la API en el rango: {resumen.pedidosDescargados}.
-            {categoriaFiltroEtiqueta ? (
-              <>
-                {" "}
-                Con filtro de categoría, solo entran líneas cuyo producto pertenece al árbol
-                elegido.
-              </>
-            ) : null}
+            Pedidos Woo válidos en el periodo. Estados de la API, totales del pedido y envíos/reembolsos están en{" "}
+            <span className="text-foreground">Herramientas técnicas</span> al final del panel.
           </CardContent>
         </Card>
         <Card className="bg-card">
