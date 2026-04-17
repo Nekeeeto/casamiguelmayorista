@@ -549,7 +549,7 @@ export async function guardarOfertasManuales(opts: {
     const weekEndsAt = sumarDiasIso(rotatedAt, 7);
     const narrativa =
       opts.narrativa_resumen?.trim() ||
-      "Listado actualizado manualmente desde Herramientas IA (sin recalcular heurística automática).";
+      "Listado actualizado manualmente desde Herramientas › Ofertas semanales (sin recalcular heurística automática).";
 
     await guardarEstadoOfertasSemanales(opts.supabase, {
       woo_product_ids: ids,

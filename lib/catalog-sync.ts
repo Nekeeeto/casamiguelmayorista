@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { WooCategoriaArbol, WooProduct } from "@/lib/woo";
+import {
+  fetchMapCantidadesVendidasReporteTopSellers,
+  fetchWooProductById,
+  type WooCategoriaArbol,
+  type WooProduct,
+} from "@/lib/woo";
 
 type CacheUpsertRow = {
   woo_product_id: number;
@@ -87,6 +92,44 @@ function normalizarVentasWeb(totalSales: unknown): number {
   return Math.min(Math.trunc(n), 2_147_483_647);
 }
 
+function totalSalesDesdeObjetoProducto(product: WooProduct): unknown {
+  const r = product as unknown as Record<string, unknown>;
+  const snake = r.total_sales;
+  if (snake != null && snake !== "") return snake;
+  const camel = r.totalSales;
+  if (camel != null && camel !== "") return camel;
+  return product.total_sales;
+}
+
+function parseParentIdWoo(product: WooProduct): number {
+  const raw = product.parent_id;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.trunc(raw);
+  }
+  const n = Number.parseInt(String(raw ?? "").trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Variaciones REST suelen traer total_sales=0; Woo acumula en el padre variable.
+ * Si en `porId` está el padre, usamos su total_sales para la columna inventario.
+ */
+function resolverVentasWebParaCache(product: WooProduct, porId: Map<number, WooProduct>): number {
+  const direct = normalizarVentasWeb(totalSalesDesdeObjetoProducto(product));
+  if (direct > 0) {
+    return direct;
+  }
+  const parentId = parseParentIdWoo(product);
+  if (parentId <= 0) {
+    return 0;
+  }
+  const parent = porId.get(parentId);
+  if (!parent) {
+    return 0;
+  }
+  return normalizarVentasWeb(totalSalesDesdeObjetoProducto(parent));
+}
+
 function normalizarStockStatus(raw: unknown): string {
   const s = String(raw ?? "").trim().toLowerCase();
   if (s === "outofstock" || s === "instock" || s === "onbackorder") {
@@ -106,7 +149,10 @@ function normalizarStockQuantity(raw: unknown): number | null {
   return Math.trunc(n);
 }
 
-export function mapWooProductToCacheRow(product: WooProduct): CacheUpsertRow {
+export function mapWooProductToCacheRow(
+  product: WooProduct,
+  porId: Map<number, WooProduct>,
+): CacheUpsertRow {
   const idsCategorias = (product.categories ?? []).map((c) => c.id);
 
   const manageStock = Boolean(product.manage_stock);
@@ -122,7 +168,7 @@ export function mapWooProductToCacheRow(product: WooProduct): CacheUpsertRow {
     woo_updated_at: product.date_modified_gmt ?? null,
     synced_at: new Date().toISOString(),
     categoria_ids: idsCategorias,
-    ventas_web: normalizarVentasWeb(product.total_sales),
+    ventas_web: resolverVentasWebParaCache(product, porId),
     stock_status: normalizarStockStatus(product.stock_status),
     manage_stock: manageStock,
     stock_quantity: manageStock ? qty : null,
@@ -175,7 +221,24 @@ export async function upsertWooProductsCache(
     return;
   }
 
-  const rows = products.map(mapWooProductToCacheRow);
+  const porId = new Map(products.map((p) => [p.id, p]));
+  const rows = products.map((p) => mapWooProductToCacheRow(p, porId));
+
+  const hoyIso = new Date().toISOString().slice(0, 10);
+  let mapaReporte = new Map<number, number>();
+  try {
+    mapaReporte = await fetchMapCantidadesVendidasReporteTopSellers("2000-01-01", hoyIso);
+  } catch {
+    mapaReporte = new Map();
+  }
+  for (const fila of rows) {
+    if (fila.ventas_web > 0) continue;
+    const desdeReporte = mapaReporte.get(fila.woo_product_id);
+    if (desdeReporte != null && desdeReporte > 0) {
+      fila.ventas_web = Math.min(desdeReporte, 2_147_483_647);
+    }
+  }
+
   const columnasExcluidas = new Set<ColumnaOpcionalWooCache>();
 
   for (let intento = 0; intento < 6; intento += 1) {
@@ -223,5 +286,20 @@ export async function deleteWooProductsCache(
 
   if (error) {
     throw new Error(error.message);
+  }
+}
+
+/** Webhook: variación sin ventas en REST necesita fila del padre en el mismo upsert para `ventas_web`. */
+export async function recolectarProductoYPadreParaCache(productId: number): Promise<WooProduct[]> {
+  const fresh = (await fetchWooProductById(productId)) as WooProduct;
+  const parentId = parseParentIdWoo(fresh);
+  if (parentId <= 0 || normalizarVentasWeb(totalSalesDesdeObjetoProducto(fresh)) > 0) {
+    return [fresh];
+  }
+  try {
+    const parent = (await fetchWooProductById(parentId)) as WooProduct;
+    return [fresh, parent];
+  } catch {
+    return [fresh];
   }
 }

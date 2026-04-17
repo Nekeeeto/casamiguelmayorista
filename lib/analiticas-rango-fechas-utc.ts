@@ -3,6 +3,33 @@
  * como día calendario en UTC (coherente con `construirRangoIsoGmt`).
  */
 
+export function fechaIsoValidaAnaliticas(valor: string | undefined): valor is string {
+  return Boolean(valor && /^\d{4}-\d{2}-\d{2}$/.test(valor));
+}
+
+/** Defaults alineados con `admin/page.tsx` (últimos ~30 días si faltan params). */
+export function resolverRangoFechasAnaliticasDesdeQuery(
+  desdeParam?: string,
+  hastaParam?: string,
+): { desde: string; hasta: string } {
+  const hoy = new Date();
+  const hastaDefault = hoy.toISOString().slice(0, 10);
+  const desdeBase = new Date(
+    Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate()),
+  );
+  desdeBase.setUTCDate(desdeBase.getUTCDate() - 30);
+  const desdeDefault = desdeBase.toISOString().slice(0, 10);
+
+  let desde = fechaIsoValidaAnaliticas(desdeParam) ? desdeParam : desdeDefault;
+  let hasta = fechaIsoValidaAnaliticas(hastaParam) ? hastaParam : hastaDefault;
+  if (desde > hasta) {
+    const tmp = desde;
+    desde = hasta;
+    hasta = tmp;
+  }
+  return { desde, hasta };
+}
+
 export function parseIsoFechaUtc(iso: string): Date {
   const [y, m, d] = iso.split("-").map((n) => Number.parseInt(n, 10));
   return new Date(Date.UTC(y, m - 1, d));

@@ -1,7 +1,8 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,12 +11,13 @@ type Fase = "arranque" | "salida" | "listo";
 const MS_MINIMO_OVERLAY = 420;
 const MS_SALIDA_OVERLAY = 360;
 const MS_MAX_ESPERA = 12000;
-const MS_BARRA_NAV = 320;
+const MS_DEBOUNCE_OVERLAY_NAV = 200;
+const MS_MAX_OVERLAY_NAV = 28000;
 
 function BarraNavegacion() {
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-9998 h-[3px] overflow-hidden bg-primary/15"
+      className="pointer-events-none fixed inset-x-0 top-0 z-10001 h-[3px] overflow-hidden bg-primary/15"
       aria-hidden
     >
       <div className="global-preloader-nav-bar h-full w-1/3 rounded-full bg-primary shadow-sm" />
@@ -23,11 +25,33 @@ function BarraNavegacion() {
   );
 }
 
-export function GlobalPreloader() {
+function esNavegacionInternaSiguiente(href: string): boolean {
+  try {
+    const next = new URL(href, window.location.origin);
+    const cur = new URL(window.location.href);
+    if (next.origin !== cur.origin) return false;
+    const nextKey = `${next.pathname}${next.search}`;
+    const curKey = `${cur.pathname}${cur.search}`;
+    return nextKey !== curKey;
+  } catch {
+    return false;
+  }
+}
+
+function GlobalPreloaderInner() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const claveRuta = `${pathname}${searchParams.size > 0 ? `?${searchParams.toString()}` : ""}`;
+
   const [fase, setFase] = useState<Fase>("arranque");
-  const [navActiva, setNavActiva] = useState(false);
-  const rutaAnterior = useRef<string | null>(null);
+  const [navPendiente, setNavPendiente] = useState(false);
+  const [navOverlay, setNavOverlay] = useState(false);
+  const idDebounceRef = useRef<number | null>(null);
+  const listoRef = useRef(false);
+
+  useLayoutEffect(() => {
+    listoRef.current = fase === "listo";
+  }, [fase]);
 
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -73,53 +97,111 @@ export function GlobalPreloader() {
   }, [fase]);
 
   useEffect(() => {
-    if (fase === "arranque") return;
-    const prev = rutaAnterior.current;
-    rutaAnterior.current = pathname;
-    if (prev === null) return;
-    if (prev === pathname) return;
-    setNavActiva(true);
-    const id = window.setTimeout(() => setNavActiva(false), MS_BARRA_NAV);
+    setNavPendiente(false);
+    setNavOverlay(false);
+    if (idDebounceRef.current !== null) {
+      window.clearTimeout(idDebounceRef.current);
+      idDebounceRef.current = null;
+    }
+  }, [claveRuta]);
+
+  useEffect(() => {
+    if (!navPendiente) {
+      if (idDebounceRef.current !== null) {
+        window.clearTimeout(idDebounceRef.current);
+        idDebounceRef.current = null;
+      }
+      setNavOverlay(false);
+      return;
+    }
+    idDebounceRef.current = window.setTimeout(() => {
+      idDebounceRef.current = null;
+      setNavOverlay(true);
+    }, MS_DEBOUNCE_OVERLAY_NAV);
+    return () => {
+      if (idDebounceRef.current !== null) {
+        window.clearTimeout(idDebounceRef.current);
+        idDebounceRef.current = null;
+      }
+    };
+  }, [navPendiente]);
+
+  useEffect(() => {
+    if (!navPendiente) return;
+    const id = window.setTimeout(() => setNavPendiente(false), MS_MAX_OVERLAY_NAV);
     return () => window.clearTimeout(id);
-  }, [pathname, fase]);
+  }, [navPendiente]);
 
-  if (fase === "listo") {
-    return navActiva ? <BarraNavegacion /> : null;
-  }
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (!listoRef.current) return;
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest("a");
+      if (!anchor || !(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#")) return;
+      if (!esNavegacionInternaSiguiente(anchor.href)) return;
+      setNavPendiente(true);
+    };
 
-  return (
-    <>
-      <div
-        className={cn(
-          "fixed inset-0 z-9999 flex flex-col items-center justify-center gap-6",
-          "bg-background/92 backdrop-blur-[10px] supports-backdrop-filter:bg-background/86",
-          "transition-opacity ease-out motion-reduce:transition-none",
-          fase === "salida" ? "pointer-events-none opacity-0" : "opacity-100",
-        )}
-        style={
-          fase === "salida"
-            ? { transitionDuration: `${MS_SALIDA_OVERLAY}ms` }
-            : { transitionDuration: "280ms" }
-        }
-        role="status"
-        aria-live="polite"
-        aria-busy={fase === "arranque"}
-      >
-        <div className="flex flex-col items-center gap-3 px-6 text-center contain-[layout]">
-          <p className="text-lg font-semibold tracking-tight text-foreground">Casa Miguel</p>
-          <p className="text-xs font-semibold tracking-[0.28em] text-muted-foreground">CARGANDO</p>
-        </div>
-        <div
+    const onPop = () => {
+      if (listoRef.current) setNavPendiente(true);
+    };
+
+    document.addEventListener("click", onClick, true);
+    window.addEventListener("popstate", onPop);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      window.removeEventListener("popstate", onPop);
+    };
+  }, []);
+
+  const overlayInicial = fase !== "listo";
+  const overlayNav = fase === "listo" && navOverlay;
+  const mostrarOverlay = overlayInicial || overlayNav;
+  const salidaInicial = overlayInicial && fase === "salida";
+
+  return mostrarOverlay ? (
+    <div
+      className={cn(
+        "fixed inset-0 z-10000 flex flex-col items-center justify-center gap-6",
+        "bg-background/92 backdrop-blur-[10px] supports-backdrop-filter:bg-background/86",
+        "transition-opacity ease-out motion-reduce:transition-none",
+        salidaInicial ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100",
+      )}
+      style={
+        salidaInicial ? { transitionDuration: `${MS_SALIDA_OVERLAY}ms` } : { transitionDuration: "280ms" }
+      }
+      role="status"
+      aria-live="polite"
+      aria-busy={mostrarOverlay}
+    >
+      {overlayNav ? <BarraNavegacion /> : null}
+      <div className="flex flex-col items-center gap-8 px-6 text-center contain-[layout]">
+        <p className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Cargando</p>
+        <Loader2
           className={cn(
-            "size-10 rounded-full border-2 border-muted border-t-primary",
-            "motion-safe:animate-spin motion-reduce:animate-none motion-reduce:border-primary/50",
+            "global-preloader-icon-spin size-16 shrink-0 text-primary sm:size-20",
+            "motion-reduce:opacity-75",
           )}
+          strokeWidth={2.25}
           aria-hidden
         />
-        <span className="sr-only">Cargando aplicación</span>
       </div>
+      <span className="sr-only">Cargando</span>
+    </div>
+  ) : null;
+}
 
-      {navActiva ? <BarraNavegacion /> : null}
-    </>
+export function GlobalPreloader() {
+  return (
+    <Suspense fallback={null}>
+      <GlobalPreloaderInner />
+    </Suspense>
   );
 }

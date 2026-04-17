@@ -12,20 +12,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { AdminDashboardHeader } from "@/components/admin/admin-dashboard-header";
 import { AdminPanelTecnicoDisclosure } from "@/components/admin/admin-panel-tecnico-disclosure";
-import { AnaliticasVentasWebMetaTecnica } from "@/components/admin/analiticas-ventas-web-meta-tecnica";
+import { AnaliticasVentasWebShell } from "@/components/admin/analiticas-ventas-web-shell";
 import { ImportadorCostosInventario } from "@/components/admin/importador-costos-inventario";
 import { InventarioPanelCliente } from "@/components/admin/inventario-panel-cliente";
 import { InventarioSyncManualFlotante } from "@/components/admin/inventario-sync-manual-flotante";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { getSupabaseServidor } from "@/lib/supabase-servidor";
 import { idsCategoriaMasDescendientes } from "@/lib/inventario-categorias";
+import { resolverRangoFechasAnaliticasDesdeQuery } from "@/lib/analiticas-rango-fechas-utc";
 import {
   cargarAnaliticasVentasWeb,
   type CargaAnaliticasVentasWeb,
 } from "@/lib/analiticas-ventas-web-data";
 import { estadosPedidoWooAnaliticasResumen } from "@/lib/woo-order-statuses-analiticas";
-import { AnaliticasVentasWebLazy } from "@/components/admin/analiticas-ventas-web-lazy";
-import { AnaliticasVentasWebRangoForm } from "@/components/admin/analiticas-ventas-web-rango-form";
 
 type FilaCategoriaCache = {
   woo_term_id: number;
@@ -66,29 +65,6 @@ function resolverEstado(perfil: PerfilUsuario | undefined) {
     return "shop_manager" as const;
   }
   return perfil.rol;
-}
-
-function fechaIsoValida(valor: string | undefined): valor is string {
-  return Boolean(valor && /^\d{4}-\d{2}-\d{2}$/.test(valor));
-}
-
-function rangoFechasAnaliticas(desdeParam?: string, hastaParam?: string) {
-  const hoy = new Date();
-  const hastaDefault = hoy.toISOString().slice(0, 10);
-  const desdeBase = new Date(
-    Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate()),
-  );
-  desdeBase.setUTCDate(desdeBase.getUTCDate() - 30);
-  const desdeDefault = desdeBase.toISOString().slice(0, 10);
-
-  let desde = fechaIsoValida(desdeParam) ? desdeParam : desdeDefault;
-  let hasta = fechaIsoValida(hastaParam) ? hastaParam : hastaDefault;
-  if (desde > hasta) {
-    const tmp = desde;
-    desde = hasta;
-    hasta = tmp;
-  }
-  return { desde, hasta };
 }
 
 /** Next puede devolver string | string[] en query params. */
@@ -174,7 +150,7 @@ export default async function AdminGeneralPage({
   const subAnalitica = analiticaParam === "mayorista" ? "mayorista" : "ventas-web";
 
   if (pestanaActiva === "analiticas") {
-    const rango = rangoFechasAnaliticas(desdeAnaliticaParam, hastaAnaliticaParam);
+    const rango = resolverRangoFechasAnaliticasDesdeQuery(desdeAnaliticaParam, hastaAnaliticaParam);
     analyticsDesde = rango.desde;
     analyticsHasta = rango.hasta;
     if (subAnalitica === "ventas-web") {
@@ -441,33 +417,22 @@ export default async function AdminGeneralPage({
                   <CardTitle className="text-lg">Ventas Web</CardTitle>
                   <CardDescription>
                     Ingresos y margen por líneas de producto (costo desde inventario mayorista). Estados Woo, fechas
-                    GMT y totales del pedido (envío, reembolsos) están en Herramientas técnicas al final.
+                    GMT y totales del pedido (envío, reembolsos) están en Herramientas técnicas al final. Usá el botón
+                    flotante <span className="text-foreground">Filtros</span> para rango y categoría sin recargar la
+                    página.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <AnaliticasVentasWebRangoForm
-                    key={`${analyticsDesde}-${analyticsHasta}-${acategoriaAnaliticaParam}`}
-                    desdeInicial={analyticsDesde}
-                    hastaInicial={analyticsHasta}
-                    acategoriaInicial={acategoriaAnaliticaParam}
-                    categorias={filasCategoriasAnaliticasVentasWeb}
-                  />
-                </CardContent>
               </Card>
 
-              {cargaAnaliticasVentasWeb && !cargaAnaliticasVentasWeb.ok ? (
-                <Card className="border-destructive/50 bg-card">
-                  <CardContent className="pt-6 text-sm text-destructive">
-                    {cargaAnaliticasVentasWeb.error}
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {cargaAnaliticasVentasWeb && cargaAnaliticasVentasWeb.ok ? (
-                <AnaliticasVentasWebLazy
-                  key={`${analyticsDesde}-${analyticsHasta}-${acategoriaAnaliticaParam}`}
-                  datos={cargaAnaliticasVentasWeb.datos}
-                  categoriaFiltroEtiqueta={analyticsEtiquetaCategoriaFiltro}
+              {cargaAnaliticasVentasWeb ? (
+                <AnaliticasVentasWebShell
+                  cargaInicial={cargaAnaliticasVentasWeb}
+                  desdeInicial={analyticsDesde}
+                  hastaInicial={analyticsHasta}
+                  acategoriaInicial={acategoriaAnaliticaParam}
+                  categorias={filasCategoriasAnaliticasVentasWeb}
+                  etiquetaCategoriaInicial={analyticsEtiquetaCategoriaFiltro}
+                  estadosPedidoWooResumen={estadosPedidoWooAnaliticasResumen()}
                 />
               ) : null}
             </>
@@ -479,21 +444,6 @@ export default async function AdminGeneralPage({
         <AdminPanelTecnicoDisclosure titulo="Herramientas técnicas (importación, API y sincronización)">
           <ImportadorCostosInventario embebido />
           <InventarioSyncManualFlotante variante="integrado" />
-        </AdminPanelTecnicoDisclosure>
-      ) : null}
-
-      {pestanaActiva === "analiticas" &&
-      subAnalitica === "ventas-web" &&
-      cargaAnaliticasVentasWeb &&
-      cargaAnaliticasVentasWeb.ok ? (
-        <AdminPanelTecnicoDisclosure titulo="Herramientas técnicas (WooCommerce, API y totales del pedido)">
-          <AnaliticasVentasWebMetaTecnica
-            desde={analyticsDesde}
-            hasta={analyticsHasta}
-            estadosPedidoWooResumen={estadosPedidoWooAnaliticasResumen()}
-            resumen={cargaAnaliticasVentasWeb.datos.resumen}
-            categoriaFiltroEtiqueta={analyticsEtiquetaCategoriaFiltro}
-          />
         </AdminPanelTecnicoDisclosure>
       ) : null}
     </section>

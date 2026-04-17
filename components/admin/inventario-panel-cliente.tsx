@@ -49,6 +49,7 @@ export type CategoriaFiltroInventario = {
 export type ProveedorInventarioOpcion = {
   id: string;
   nombre_fantasia: string;
+  logo_url: string | null;
 };
 
 type RespuestaApiInventario =
@@ -532,9 +533,14 @@ export function InventarioPanelCliente({
     setProveedores((prev) =>
       prev.some((p) => p.id === proveedor.id)
         ? prev
-        : [...prev, { id: proveedor.id, nombre_fantasia: proveedor.nombre_fantasia }].sort((a, b) =>
-            a.nombre_fantasia.localeCompare(b.nombre_fantasia, "es"),
-          ),
+        : [
+            ...prev,
+            {
+              id: proveedor.id,
+              nombre_fantasia: proveedor.nombre_fantasia,
+              logo_url: proveedor.logo_url ?? null,
+            },
+          ].sort((a, b) => a.nombre_fantasia.localeCompare(b.nombre_fantasia, "es")),
     );
   }, []);
 

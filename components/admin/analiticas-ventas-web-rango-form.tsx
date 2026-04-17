@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarRange } from "lucide-react";
+import { CalendarRange, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { DateRange } from "react-day-picker";
 
@@ -40,13 +40,6 @@ function formatearRangoEtiqueta(range: DateRange | undefined, fallbackDesde: str
 
 type CategoriaOpcion = { woo_term_id: number; nombre: string };
 
-type Props = {
-  desdeInicial: string;
-  hastaInicial: string;
-  acategoriaInicial: string;
-  categorias: CategoriaOpcion[];
-};
-
 function useMesesVisiblesCalendario() {
   const [meses, setMeses] = useState(1);
   useEffect(() => {
@@ -59,11 +52,28 @@ function useMesesVisiblesCalendario() {
   return meses;
 }
 
-export function AnaliticasVentasWebRangoForm({
+export type AnaliticasVentasWebFiltrosPayload = {
+  desde: string;
+  hasta: string;
+  acategoria: string;
+};
+
+type Props = {
+  desdeInicial: string;
+  hastaInicial: string;
+  acategoriaInicial: string;
+  categorias: CategoriaOpcion[];
+  alAplicar: (payload: AnaliticasVentasWebFiltrosPayload) => void | Promise<void>;
+  aplicando?: boolean;
+};
+
+export function AnaliticasVentasWebFiltrosEditor({
   desdeInicial,
   hastaInicial,
   acategoriaInicial,
   categorias,
+  alAplicar,
+  aplicando = false,
 }: Props) {
   const inicial = useMemo<DateRange>(
     () => ({
@@ -76,7 +86,14 @@ export function AnaliticasVentasWebRangoForm({
   const [rango, setRango] = useState<DateRange | undefined>(inicial);
   const [popoverAbierto, setPopoverAbierto] = useState(false);
   const [presetActivo, setPresetActivo] = useState<PresetRangoAnaliticasId | null>(null);
+  const [acategoria, setAcategoria] = useState(acategoriaInicial);
   const mesesCalendario = useMesesVisiblesCalendario();
+
+  useEffect(() => {
+    setRango(inicial);
+    setAcategoria(acategoriaInicial);
+    setPresetActivo(null);
+  }, [inicial, acategoriaInicial]);
 
   const textoRango = formatearRangoEtiqueta(rango, desdeInicial, hastaInicial);
 
@@ -95,13 +112,16 @@ export function AnaliticasVentasWebRangoForm({
     setPresetActivo(id);
   }
 
-  return (
-    <form action="/admin" method="get" className="space-y-4">
-      <input type="hidden" name="tab" value="analiticas" />
-      <input type="hidden" name="analitica" value="ventas-web" />
-      <input type="hidden" name="desde" value={desdeStr} />
-      <input type="hidden" name="hasta" value={hastaStr} />
+  async function enviar() {
+    await alAplicar({
+      desde: desdeStr,
+      hasta: hastaStr,
+      acategoria,
+    });
+  }
 
+  return (
+    <div className="space-y-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex flex-col gap-1.5">
@@ -152,13 +172,13 @@ export function AnaliticasVentasWebRangoForm({
         </div>
 
         <div className="flex w-full max-w-xs flex-col gap-1.5 xl:w-72">
-          <label htmlFor="analitica-acategoria" className="text-xs text-muted-foreground">
+          <label htmlFor="analitica-acategoria-floating" className="text-xs text-muted-foreground">
             Categoría (incluye subcategorías)
           </label>
           <select
-            id="analitica-acategoria"
-            name="acategoria"
-            defaultValue={acategoriaInicial}
+            id="analitica-acategoria-floating"
+            value={acategoria}
+            onChange={(e) => setAcategoria(e.target.value)}
             className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <option value="">Todas las categorías</option>
@@ -170,10 +190,16 @@ export function AnaliticasVentasWebRangoForm({
           </select>
         </div>
 
-        <Button type="submit" className="h-11 w-full shrink-0 sm:w-auto">
+        <Button
+          type="button"
+          className="h-11 w-full shrink-0 sm:w-auto"
+          disabled={aplicando}
+          onClick={() => void enviar()}
+        >
+          {aplicando ? <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden /> : null}
           Aplicar filtros
         </Button>
       </div>
-    </form>
+    </div>
   );
 }

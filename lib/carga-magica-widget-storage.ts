@@ -9,7 +9,7 @@ export const LS_ANTHROPIC_MODEL = "cm_carga_magica_model_v1";
 /** `true` = no llamar a Photoroom (por defecto, para no bloquear si vence el plan). */
 export const LS_OMITIR_PHOTOROOM = "cm_carga_magica_omitir_ph_v1";
 
-/** Google AI (Gemini) — Herramientas IA imágenes (opcional; alternativa a GEMINI_API_KEY en servidor). */
+/** Google AI (Gemini) — Herramientas › imágenes (opcional; alternativa a GEMINI_API_KEY en servidor). */
 export const LS_GEMINI_KEY = "cm_herramientas_gemini_v1";
 
 /** Modelos Claude con visión (Messages API). IDs oficiales Anthropic. */

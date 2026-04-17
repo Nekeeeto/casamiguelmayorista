@@ -267,9 +267,31 @@ function cmpTexto(a: string, b: string) {
   return a.localeCompare(b, "es", { sensitivity: "base" });
 }
 
+function MiniaturaLogoProveedor({
+  logoUrl,
+  className,
+}: {
+  logoUrl: string | null;
+  className?: string;
+}) {
+  if (logoUrl) {
+    return (
+      <Image
+        src={logoUrl}
+        alt=""
+        width={24}
+        height={24}
+        className={cn("size-6 shrink-0 rounded object-contain", className)}
+        unoptimized
+      />
+    );
+  }
+  return <span className={cn("size-6 shrink-0 rounded bg-muted", className)} aria-hidden />;
+}
+
 type Props = {
   productos: ProductoInventarioFila[];
-  proveedores: { id: string; nombre_fantasia: string }[];
+  proveedores: { id: string; nombre_fantasia: string; logo_url: string | null }[];
   resetKey: string;
   onProveedorCreado?: (proveedor: ProveedorInsertado) => void;
 };
@@ -304,10 +326,13 @@ export function InventarioTablaProductos({
   const [modalCrearProveedorAbierto, setModalCrearProveedorAbierto] = useState(false);
   const [wooProductIdProveedorNuevo, setWooProductIdProveedorNuevo] = useState<number | null>(null);
 
-  const nombreProveedorPorId = useMemo(() => {
-    const mapa = new Map<string, string>();
+  const metaProveedorPorId = useMemo(() => {
+    const mapa = new Map<string, { nombre: string; logo_url: string | null }>();
     for (const proveedor of proveedores) {
-      mapa.set(proveedor.id, proveedor.nombre_fantasia);
+      mapa.set(proveedor.id, {
+        nombre: proveedor.nombre_fantasia,
+        logo_url: proveedor.logo_url ?? null,
+      });
     }
     return mapa;
   }, [proveedores]);
@@ -482,10 +507,10 @@ export function InventarioTablaProductos({
           cmp = cmpTexto(
             ea.proveedorId === SIN_PROVEEDOR
               ? ""
-              : (nombreProveedorPorId.get(ea.proveedorId) ?? ""),
+              : (metaProveedorPorId.get(ea.proveedorId)?.nombre ?? ""),
             eb.proveedorId === SIN_PROVEEDOR
               ? ""
-              : (nombreProveedorPorId.get(eb.proveedorId) ?? ""),
+              : (metaProveedorPorId.get(eb.proveedorId)?.nombre ?? ""),
           );
           break;
         case "precioMayorista":
@@ -504,7 +529,7 @@ export function InventarioTablaProductos({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copia;
-  }, [productos, ediciones, sortBy, sortDir, nombreProveedorPorId, stockLocal]);
+  }, [productos, ediciones, sortBy, sortDir, metaProveedorPorId, stockLocal]);
 
   const numCambios = useMemo(() => {
     let n = 0;
@@ -1043,6 +1068,8 @@ export function InventarioTablaProductos({
                       );
                     }
                     if (id === "proveedor") {
+                      const metaProveedorFila =
+                        ed.proveedorId === SIN_PROVEEDOR ? null : metaProveedorPorId.get(ed.proveedorId);
                       return (
                         <td key={id} className={cn("px-4 py-3", sticky.className)} style={sticky.style}>
                           <Select
@@ -1052,14 +1079,29 @@ export function InventarioTablaProductos({
                             }
                             disabled={pendienteProveedor}
                           >
-                            <SelectTrigger className="max-w-[220px]">
-                              <SelectValue placeholder="Sin proveedor" />
+                            <SelectTrigger className="max-w-[220px] gap-2">
+                              <div className="flex min-w-0 flex-1 items-center gap-2">
+                                {metaProveedorFila ? (
+                                  <MiniaturaLogoProveedor logoUrl={metaProveedorFila.logo_url} />
+                                ) : null}
+                                <SelectValue placeholder="Sin proveedor" className="truncate text-left" />
+                              </div>
                             </SelectTrigger>
                             <SelectContent position="popper">
-                              <SelectItem value={SIN_PROVEEDOR}>Sin proveedor</SelectItem>
+                              <SelectItem value={SIN_PROVEEDOR} textValue="Sin proveedor">
+                                Sin proveedor
+                              </SelectItem>
                               {proveedores.map((proveedor) => (
-                                <SelectItem key={proveedor.id} value={proveedor.id}>
-                                  {proveedor.nombre_fantasia}
+                                <SelectItem
+                                  key={proveedor.id}
+                                  value={proveedor.id}
+                                  textValue={proveedor.nombre_fantasia}
+                                  className="py-2"
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <MiniaturaLogoProveedor logoUrl={proveedor.logo_url ?? null} />
+                                    <span className="truncate">{proveedor.nombre_fantasia}</span>
+                                  </span>
                                 </SelectItem>
                               ))}
                               <SelectSeparator />

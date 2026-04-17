@@ -142,3 +142,21 @@ body {
     margin-left: 30%;
   }
 }
+
+/* Ícono Loader2 — rotación explícita (no depender solo de utility animate-spin). */
+@keyframes global-preloader-icon-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.global-preloader-icon-spin {
+  animation: global-preloader-icon-rotate 0.8s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-preloader-icon-spin {
+    animation: none;
+  }
+}

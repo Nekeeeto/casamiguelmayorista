@@ -1,4 +1,4 @@
-/** Prompts por defecto para Herramientas IA — imágenes Gemini 3.1 Flash Image. */
+/** Prompts por defecto para Herramientas › imágenes Gemini 3.1 Flash Image. */
 
 export const PROMPT_IMAGEN_PRODUCTO_GEMINI_DEFAULT = `Editá esta imagen como fotografía de catálogo para e-commerce.
 

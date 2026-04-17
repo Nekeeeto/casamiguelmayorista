@@ -24,6 +24,7 @@ function resolverTamanoPagina(raw: string | null) {
 type ProveedorInventarioOpcion = {
   id: string;
   nombre_fantasia: string;
+  logo_url: string | null;
 };
 
 function fusionarParaTabla(
@@ -99,7 +100,7 @@ export async function GET(request: Request) {
     let proveedores: ProveedorInventarioOpcion[] = [];
     const { data: proveedoresData, error: proveedoresError } = await supabaseAdmin
       .from("proveedores")
-      .select("id, nombre_fantasia")
+      .select("id, nombre_fantasia, logo_url")
       .order("nombre_fantasia", { ascending: true });
     if (proveedoresError && !proveedoresError.message.includes("Could not find the table")) {
       return NextResponse.json(
@@ -109,9 +110,14 @@ export async function GET(request: Request) {
     }
     if (!proveedoresError) {
       proveedores =
-        ((proveedoresData ?? []) as Array<{ id: string; nombre_fantasia: string }>).map((fila) => ({
+        ((proveedoresData ?? []) as Array<{
+          id: string;
+          nombre_fantasia: string;
+          logo_url: string | null;
+        }>).map((fila) => ({
           id: fila.id,
           nombre_fantasia: fila.nombre_fantasia,
+          logo_url: fila.logo_url ?? null,
         })) ?? [];
     }
 

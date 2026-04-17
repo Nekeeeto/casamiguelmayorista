@@ -7,6 +7,7 @@ const RUTAS_ADMIN = [
   "/usuarios",
   "/inventario",
   "/analiticas",
+  "/herramientas",
   "/herramientas-ia",
   "/proveedores",
 ];

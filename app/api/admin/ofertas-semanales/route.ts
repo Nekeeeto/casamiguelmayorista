@@ -69,7 +69,7 @@ export async function POST(req: Request) {
         pushWoo,
         detalle: construido.detalle,
         narrativa_resumen:
-          "Listado guardado manualmente desde Herramientas IA (validación de costo > 0 y exclusiones Pirotecnía/Estadio).",
+          "Listado guardado manualmente desde Herramientas › Ofertas semanales (validación de costo > 0 y exclusiones Pirotecnía/Estadio).",
       });
       if (!resultado.ok) {
         return NextResponse.json({ error: resultado.error }, { status: 400 });

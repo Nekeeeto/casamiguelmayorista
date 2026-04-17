@@ -1,0 +1,510 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CheckCircle2,
+  FileText,
+  Filter,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  UserX,
+} from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { formatearTelefonoParaUi } from "@/lib/telefono-wa-uruguay";
+import { WhatsappContactoDialog, type ContactoFormularioDatos } from "@/components/admin/whatsapp-contacto-dialog";
+
+type Contacto = {
+  id: string;
+  nombre: string;
+  telefono: string;
+  tags: string[];
+  notas: string;
+  fecha_creacion: string;
+  ultimo_mensaje: string | null;
+  opted_out: boolean;
+  opted_out_at: string | null;
+};
+
+type OrdenCol = "nombre" | "fecha_creacion" | "ultimo_mensaje";
+type Direccion = "asc" | "desc";
+type OptOutFiltro = "todos" | "activos" | "baja";
+
+export function WhatsappContactosTab() {
+  const [contactos, setContactos] = useState<Contacto[]>([]);
+  const [tagsDisponibles, setTagsDisponibles] = useState<string[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [busqueda, setBusqueda] = useState("");
+  const [tagsSeleccionadas, setTagsSeleccionadas] = useState<string[]>([]);
+  const [optOut, setOptOut] = useState<OptOutFiltro>("todos");
+  const [orden, setOrden] = useState<OrdenCol>("fecha_creacion");
+  const [direccion, setDireccion] = useState<Direccion>("desc");
+  const [dialogAlta, setDialogAlta] = useState(false);
+  const [enEdicion, setEnEdicion] = useState<Contacto | null>(null);
+  const [dialogImport, setDialogImport] = useState(false);
+  const [csvTexto, setCsvTexto] = useState("");
+  const [importando, setImportando] = useState(false);
+  const [resultadoImport, setResultadoImport] = useState<{
+    creados: number;
+    duplicados: number;
+    invalidos: { fila: number; motivo: string }[];
+  } | null>(null);
+  const [confirmarBorrar, setConfirmarBorrar] = useState<Contacto | null>(null);
+  const [operando, setOperando] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const params = new URLSearchParams();
+      if (busqueda.trim()) params.set("q", busqueda.trim());
+      if (tagsSeleccionadas.length > 0) params.set("tags", tagsSeleccionadas.join(","));
+      params.set("orden", orden);
+      params.set("direccion", direccion);
+      if (optOut !== "todos") params.set("optOut", optOut);
+      const res = await fetch(`/api/admin/whatsapp/contactos?${params.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as { contactos: Contacto[] };
+      setContactos(data.contactos);
+    } catch (error) {
+      toast.error("No se pudieron cargar los contactos.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setCargando(false);
+    }
+  }, [busqueda, direccion, optOut, orden, tagsSeleccionadas]);
+
+  const cargarTags = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/whatsapp/contactos/tags", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { tags: string[] };
+      setTagsDisponibles(data.tags);
+    } catch {
+      // silencioso
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = setTimeout(() => void cargar(), 200);
+    return () => clearTimeout(id);
+  }, [cargar]);
+
+  useEffect(() => {
+    void cargarTags();
+  }, [cargarTags]);
+
+  const cambiarOrden = (columna: OrdenCol) => {
+    if (orden === columna) {
+      setDireccion((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setOrden(columna);
+      setDireccion("asc");
+    }
+  };
+
+  const iconoOrden = (columna: OrdenCol) =>
+    orden !== columna ? (
+      <ArrowUpDown className="size-3 opacity-60" />
+    ) : direccion === "asc" ? (
+      <ArrowUp className="size-3" />
+    ) : (
+      <ArrowDown className="size-3" />
+    );
+
+  const importar = async () => {
+    setImportando(true);
+    setResultadoImport(null);
+    try {
+      const res = await fetch("/api/admin/whatsapp/contactos/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv: csvTexto }),
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? `HTTP ${res.status}`);
+      }
+      const resumen = (await res.json()) as { creados: number; duplicados: number; invalidos: { fila: number; motivo: string }[] };
+      setResultadoImport(resumen);
+      toast.success(`Import: ${resumen.creados} nuevos, ${resumen.duplicados} duplicados, ${resumen.invalidos.length} inválidos.`);
+      await cargar();
+      await cargarTags();
+    } catch (error) {
+      toast.error("Error al importar.", { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setImportando(false);
+    }
+  };
+
+  const onArchivoCsv = (archivo: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const texto = typeof reader.result === "string" ? reader.result : "";
+      setCsvTexto(texto);
+    };
+    reader.readAsText(archivo);
+  };
+
+  const borrar = async () => {
+    if (!confirmarBorrar) return;
+    setOperando(confirmarBorrar.id);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/contactos/${encodeURIComponent(confirmarBorrar.id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success("Contacto eliminado.");
+      setConfirmarBorrar(null);
+      await cargar();
+    } catch (error) {
+      toast.error("No se pudo eliminar.", { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setOperando(null);
+    }
+  };
+
+  const toggleOptOut = async (contacto: Contacto) => {
+    setOperando(contacto.id);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/contactos/${encodeURIComponent(contacto.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opted_out: !contacto.opted_out }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success(contacto.opted_out ? "Contacto reactivado." : "Contacto dado de baja.");
+      await cargar();
+    } catch (error) {
+      toast.error("No se pudo actualizar.", { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setOperando(null);
+    }
+  };
+
+  const datosEdicion: ContactoFormularioDatos | undefined = enEdicion
+    ? {
+        id: enEdicion.id,
+        nombre: enEdicion.nombre,
+        telefono: enEdicion.telefono,
+        tags: enEdicion.tags,
+        notas: enEdicion.notas,
+      }
+    : undefined;
+
+  const totalActivos = useMemo(() => contactos.filter((c) => !c.opted_out).length, [contactos]);
+
+  return (
+    <Card>
+      <CardHeader className="flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardTitle>Contactos ({contactos.length} — {totalActivos} activos)</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={() => setDialogAlta(true)}>
+            <Plus className="size-4" /> Agregar
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setDialogImport(true)}>
+            <Upload className="size-4" /> Importar CSV
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              className="pl-8"
+              placeholder="Buscar por nombre o teléfono…"
+              value={busqueda}
+              onChange={(event) => setBusqueda(event.target.value)}
+            />
+          </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Filter className="size-4" />
+                Tags {tagsSeleccionadas.length > 0 ? `(${tagsSeleccionadas.length})` : ""}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="max-h-80 w-64 overflow-y-auto">
+              {tagsDisponibles.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin tags registradas.</p>
+              ) : (
+                <div className="space-y-2">
+                  {tagsDisponibles.map((tag) => {
+                    const activa = tagsSeleccionadas.includes(tag);
+                    return (
+                      <label key={tag} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={activa}
+                          onCheckedChange={(checked) => {
+                            setTagsSeleccionadas((prev) =>
+                              checked ? [...prev, tag] : prev.filter((t) => t !== tag),
+                            );
+                          }}
+                        />
+                        {tag}
+                      </label>
+                    );
+                  })}
+                  {tagsSeleccionadas.length > 0 ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setTagsSeleccionadas([])}
+                    >
+                      Limpiar
+                    </Button>
+                  ) : null}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+          <Select value={optOut} onValueChange={(v) => setOptOut(v as OptOutFiltro)}>
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos</SelectItem>
+              <SelectItem value="activos">Activos</SelectItem>
+              <SelectItem value="baja">Dados de baja</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {cargando ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Cargando…
+          </div>
+        ) : contactos.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay contactos con ese filtro.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
+                    onClick={() => cambiarOrden("nombre")}
+                  >
+                    Nombre {iconoOrden("nombre")}
+                  </button>
+                </TableHead>
+                <TableHead>Teléfono</TableHead>
+                <TableHead>Tags</TableHead>
+                <TableHead>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
+                    onClick={() => cambiarOrden("fecha_creacion")}
+                  >
+                    Alta {iconoOrden("fecha_creacion")}
+                  </button>
+                </TableHead>
+                <TableHead>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
+                    onClick={() => cambiarOrden("ultimo_mensaje")}
+                  >
+                    Último mensaje {iconoOrden("ultimo_mensaje")}
+                  </button>
+                </TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead className="w-32">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {contactos.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="font-medium">{c.nombre || "—"}</TableCell>
+                  <TableCell className="font-mono text-xs">{formatearTelefonoParaUi(c.telefono)}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {c.tags.map((t) => (
+                        <Badge key={t}>{t}</Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {new Date(c.fecha_creacion).toLocaleDateString("es-UY")}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {c.ultimo_mensaje ? new Date(c.ultimo_mensaje).toLocaleDateString("es-UY") : "—"}
+                  </TableCell>
+                  <TableCell>
+                    {c.opted_out ? (
+                      <Badge variante="destructive">Baja</Badge>
+                    ) : (
+                      <Badge variante="success">Activo</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEnEdicion(c)}
+                        title="Editar"
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => void toggleOptOut(c)}
+                        disabled={operando === c.id}
+                        title={c.opted_out ? "Reactivar" : "Dar de baja"}
+                      >
+                        {c.opted_out ? <CheckCircle2 className="size-4" /> : <UserX className="size-4" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setConfirmarBorrar(c)}
+                        title="Eliminar"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      <WhatsappContactoDialog
+        abierto={dialogAlta}
+        onAbiertoChange={setDialogAlta}
+        tagsSugeridos={tagsDisponibles}
+        onGuardado={() => {
+          void cargar();
+          void cargarTags();
+        }}
+      />
+
+      <WhatsappContactoDialog
+        abierto={Boolean(enEdicion)}
+        onAbiertoChange={(abierto) => !abierto && setEnEdicion(null)}
+        inicial={datosEdicion}
+        tagsSugeridos={tagsDisponibles}
+        onGuardado={() => {
+          setEnEdicion(null);
+          void cargar();
+          void cargarTags();
+        }}
+      />
+
+      <Dialog open={dialogImport} onOpenChange={setDialogImport}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Importar contactos desde CSV</DialogTitle>
+            <DialogDescription>
+              Encabezados soportados: <code>nombre</code>, <code>telefono</code> (obligatorio),{" "}
+              <code>tags</code> (separadas por <code>|</code> o <code>,</code>), <code>notas</code>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="wa-csv-file">Archivo CSV</Label>
+              <Input
+                id="wa-csv-file"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => {
+                  const f = event.target.files?.[0];
+                  if (f) onArchivoCsv(f);
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wa-csv-texto">…o pegá el contenido:</Label>
+              <Textarea
+                id="wa-csv-texto"
+                rows={8}
+                value={csvTexto}
+                onChange={(event) => setCsvTexto(event.target.value)}
+                placeholder="nombre,telefono,tags,notas"
+              />
+            </div>
+            {resultadoImport ? (
+              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+                <p>
+                  Creados: <strong>{resultadoImport.creados}</strong> · Duplicados:{" "}
+                  <strong>{resultadoImport.duplicados}</strong> · Inválidos:{" "}
+                  <strong>{resultadoImport.invalidos.length}</strong>
+                </p>
+                {resultadoImport.invalidos.length > 0 ? (
+                  <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+                    {resultadoImport.invalidos.slice(0, 20).map((i, idx) => (
+                      <li key={idx}>
+                        Fila {i.fila}: {i.motivo}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogImport(false)} disabled={importando}>
+              Cerrar
+            </Button>
+            <Button onClick={() => void importar()} disabled={importando || !csvTexto.trim()}>
+              {importando ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+              Importar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(confirmarBorrar)} onOpenChange={(abierto) => !abierto && setConfirmarBorrar(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar contacto</DialogTitle>
+            <DialogDescription>
+              Se va a eliminar <strong>{confirmarBorrar?.nombre || confirmarBorrar?.telefono}</strong>. No se puede
+              deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmarBorrar(null)} disabled={operando !== null}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={() => void borrar()} disabled={operando !== null}>
+              {operando ? <Loader2 className="size-4 animate-spin" /> : null}
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}

@@ -8,6 +8,10 @@ export type WooCategoriaProducto = {
 
 export type WooProduct = {
   id: number;
+  /** simple | variation | variable | grouped | external */
+  type?: string;
+  /** Solo variaciones: ID del producto variable padre. */
+  parent_id?: number;
   name: string;
   sku: string;
   status: string;
@@ -214,6 +218,37 @@ export async function fetchWooProductById(productId: number) {
   const woo = getWooClient();
   const { data } = await woo.get(`products/${productId}`, { context: "edit" });
   return data as WooProduct;
+}
+
+type FilaReporteTopSeller = {
+  product_id?: string | number;
+  quantity?: string | number;
+};
+
+/**
+ * Unidades vendidas por producto (REST `reports/sales/top_sellers` + rango de fechas).
+ * Sirve de respaldo cuando `total_sales` en `GET products` viene siempre 0 (p. ej. algunos entornos HPOS).
+ */
+export async function fetchMapCantidadesVendidasReporteTopSellers(
+  dateMin: string,
+  dateMax: string,
+): Promise<Map<number, number>> {
+  const woo = getWooClient();
+  const { data } = await woo.get("reports/sales/top_sellers", {
+    filter: { date_min: dateMin, date_max: dateMax },
+  });
+  const merged = new Map<number, number>();
+  const payload = data as { top_sellers?: FilaReporteTopSeller[] };
+  for (const row of payload.top_sellers ?? []) {
+    const id = Number(row.product_id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const qty = Math.trunc(
+      Number.parseFloat(String(row.quantity ?? "0").replace(/\s/g, "").replace(",", ".")),
+    );
+    if (!Number.isFinite(qty) || qty < 0) continue;
+    merged.set(id, (merged.get(id) ?? 0) + qty);
+  }
+  return merged;
 }
 
 /** Pedido Woo REST crudo (útil para inspeccionar `meta_data`, envíos, etc.). */

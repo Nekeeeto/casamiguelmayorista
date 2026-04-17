@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { BarChart3, Bot, Building2, LayoutGrid, Package, Users } from "lucide-react";
+import { BarChart3, Building2, LayoutGrid, Package, Users } from "lucide-react";
 
+import { HerramientasMegaMenu } from "@/components/admin/herramientas-mega-menu";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 type PestanaAdminHeader =
@@ -9,7 +10,7 @@ type PestanaAdminHeader =
   | "analiticas"
   | "pedidos"
   | "proveedores"
-  | "herramientasIa";
+  | "herramientas";
 
 type VarianteCabeceraAdmin = "completo" | "operaciones";
 
@@ -95,17 +96,7 @@ export function AdminDashboardHeader({
                 <Building2 className="size-4 shrink-0" aria-hidden />
                 Proveedores
               </Link>
-              <Link
-                href="/herramientas-ia"
-                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
-                  pestanaActiva === "herramientasIa"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Bot className="size-4 shrink-0" aria-hidden />
-                Herramientas IA
-              </Link>
+              <HerramientasMegaMenu />
             </>
           ) : null}
         </div>

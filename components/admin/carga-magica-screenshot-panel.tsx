@@ -724,7 +724,7 @@ export function CargaMagicaScreenshotPanel() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Herramientas IA — Carga Mágica por screenshot
+            Herramientas — Carga mágica por screenshot
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Photoroom opcional, Claude configurable y alta en WooCommerce (incluye modo masivo).

@@ -4,10 +4,10 @@ import { NextResponse } from "next/server";
 
 import {
   deleteWooProductsCache,
+  recolectarProductoYPadreParaCache,
   upsertWooProductsCache,
 } from "@/lib/catalog-sync";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { fetchWooProductById, type WooProduct } from "@/lib/woo";
 
 function verifyWooSignature(rawBody: string, signature: string, secret: string) {
   const expected = createHmac("sha256", secret).update(rawBody).digest("base64");
@@ -63,8 +63,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, action: "deleted", productId });
     }
 
-    const freshProduct = (await fetchWooProductById(productId)) as WooProduct;
-    await upsertWooProductsCache(supabaseAdmin, [freshProduct]);
+    const productos = await recolectarProductoYPadreParaCache(productId);
+    await upsertWooProductsCache(supabaseAdmin, productos);
 
     return NextResponse.json({ ok: true, action: "upserted", productId });
   } catch (error) {
