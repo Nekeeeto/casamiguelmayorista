@@ -69,14 +69,19 @@ export async function GET(req: Request) {
   const token = url.searchParams.get("hub.verify_token");
   const challenge = url.searchParams.get("hub.challenge");
 
-  if (mode === "subscribe") {
+  if (mode === "subscribe" && token && challenge) {
+    const envToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim() ?? "";
+    if (envToken && token === envToken) {
+      return new NextResponse(challenge, { status: 200 });
+    }
     try {
       const config = await leerConfigWhatsapp();
-      if (token && config.valores.webhook_verify_token && token === config.valores.webhook_verify_token) {
-        return new NextResponse(challenge ?? "", { status: 200 });
+      const dbToken = config.valores.webhook_verify_token?.trim() ?? "";
+      if (dbToken && token === dbToken) {
+        return new NextResponse(challenge, { status: 200 });
       }
     } catch {
-      // fallthrough
+      // Supabase caído o tabla sin migrar: si ya validó arriba con env, no llegamos acá con match
     }
   }
   return new NextResponse("forbidden", { status: 403 });
