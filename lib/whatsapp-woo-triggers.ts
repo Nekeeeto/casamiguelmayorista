@@ -3,7 +3,11 @@ import { leerConfigWhatsapp } from "@/lib/whatsapp-config";
 import { fetchWooOrderRawById } from "@/lib/woo";
 import { normalizarTelefonoWaUruguay, esTelefonoUyValido } from "@/lib/telefono-wa-uruguay";
 import { WhatsappCloudApiError, listApprovedTemplates, sendTemplateMessage } from "@/lib/whatsapp-cloud-api";
-import { construirComponentesTemplateEnvio } from "@/lib/whatsapp-templates";
+import {
+  construirComponentesTemplateEnvio,
+  plantillaRequiereCabeceraMultimedia,
+  resolverMediaHeaderEnvio,
+} from "@/lib/whatsapp-templates";
 
 export type TriggerKey = "order_confirmed" | "order_shipped" | "order_delivered" | "cart_abandoned";
 
@@ -15,6 +19,7 @@ type FilaTrigger = {
   template_name: string | null;
   template_language: string;
   variable_mapping: VariableMapping;
+  template_header_media_url: string | null;
 };
 
 export const CAMPOS_PEDIDO_DISPONIBLES = [
@@ -98,7 +103,7 @@ export async function dispararTriggerPedido({
 
   const { data: trigger, error: errTrigger } = await supabase
     .from("whatsapp_triggers")
-    .select("trigger_key, enabled, template_name, template_language, variable_mapping")
+    .select("trigger_key, enabled, template_name, template_language, variable_mapping, template_header_media_url")
     .eq("trigger_key", triggerKey)
     .maybeSingle<FilaTrigger>();
 
@@ -143,7 +148,15 @@ export async function dispararTriggerPedido({
   if (!tpl) {
     return { ok: false, motivo: "Template no encontrado en Meta." };
   }
-  const componentes = construirComponentesTemplateEnvio(tpl, variables, null);
+  const media = resolverMediaHeaderEnvio(tpl, trigger.template_header_media_url);
+  if (plantillaRequiereCabeceraMultimedia(tpl) && !media) {
+    return {
+      ok: false,
+      motivo:
+        "El template tiene cabecera multimedia: configurá «URL cabecera» en el trigger (HTTPS público).",
+    };
+  }
+  const componentes = construirComponentesTemplateEnvio(tpl, variables, media);
 
   try {
     const resultado = await sendTemplateMessage(
@@ -262,7 +275,7 @@ export async function dispararTriggerCarritoAbandonado({
 
   const { data: trigger, error: errTrigger } = await supabase
     .from("whatsapp_triggers")
-    .select("trigger_key, enabled, template_name, template_language, variable_mapping")
+    .select("trigger_key, enabled, template_name, template_language, variable_mapping, template_header_media_url")
     .eq("trigger_key", triggerKey)
     .maybeSingle<FilaTrigger>();
 
@@ -306,7 +319,15 @@ export async function dispararTriggerCarritoAbandonado({
   if (!tpl) {
     return { ok: false, motivo: "Template no encontrado en Meta." };
   }
-  const componentes = construirComponentesTemplateEnvio(tpl, variables, null);
+  const media = resolverMediaHeaderEnvio(tpl, trigger.template_header_media_url);
+  if (plantillaRequiereCabeceraMultimedia(tpl) && !media) {
+    return {
+      ok: false,
+      motivo:
+        "El template tiene cabecera multimedia: configurá «URL cabecera» en el trigger (HTTPS público).",
+    };
+  }
+  const componentes = construirComponentesTemplateEnvio(tpl, variables, media);
 
   try {
     const resultado = await sendTemplateMessage(

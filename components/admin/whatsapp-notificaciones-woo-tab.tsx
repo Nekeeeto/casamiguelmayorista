@@ -29,14 +29,20 @@ type Trigger = {
   template_name: string | null;
   template_language: string;
   variable_mapping: Record<string, string>;
+  template_header_media_url?: string | null;
   updated_at: string;
 };
 
 type TemplateLista = {
   name: string;
   language: string;
-  placeholders: { totalVariables: number };
+  placeholders: { totalVariables: number; headerFormat?: string | null };
 };
+
+function plantillaUsaCabeceraMultimedia(t: TemplateLista | undefined): boolean {
+  const f = t?.placeholders?.headerFormat;
+  return f === "IMAGE" || f === "VIDEO" || f === "DOCUMENT";
+}
 
 const KEYS_PEDIDO: TriggerKeyPedido[] = ["order_confirmed", "order_shipped", "order_delivered"];
 
@@ -272,6 +278,8 @@ function TriggerCardPedido({
     setMapping(trigger.variable_mapping ?? {});
   }, [trigger.variable_mapping]);
 
+  const cabeceraMultimedia = plantillaUsaCabeceraMultimedia(templateSeleccionada);
+
   const templateKey = templateSeleccionada
     ? `${templateSeleccionada.name}::${templateSeleccionada.language}`
     : "";
@@ -326,6 +334,27 @@ function TriggerCardPedido({
             </Select>
           </div>
         </div>
+
+        {cabeceraMultimedia ? (
+          <div className="space-y-1.5">
+            <Label htmlFor={`wa-header-media-${trigger.trigger_key}`}>URL cabecera (HTTPS público)</Label>
+            <Input
+              id={`wa-header-media-${trigger.trigger_key}`}
+              key={`${trigger.trigger_key}-hdr-${trigger.updated_at}`}
+              defaultValue={trigger.template_header_media_url ?? ""}
+              disabled={guardando}
+              placeholder="https://…"
+              onBlur={(e) => {
+                const v = e.target.value.trim() || null;
+                const prev = (trigger.template_header_media_url ?? "").trim() || null;
+                if (v !== prev) onActualizar({ template_header_media_url: v });
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Obligatorio si el template tiene cabecera imagen, video o documento en Meta.
+            </p>
+          </div>
+        ) : null}
 
         {totalVars > 0 ? (
           <div className="rounded-md border border-border p-3">
@@ -437,6 +466,7 @@ function CarritoAbandonadoDialog({
     ? `${templateSeleccionada.name}::${templateSeleccionada.language}`
     : "";
   const totalVars = templateSeleccionada?.placeholders.totalVariables ?? 0;
+  const cabeceraMultimedia = plantillaUsaCabeceraMultimedia(templateSeleccionada);
 
   const cambioPendiente = useMemo(
     () => JSON.stringify(mapping) !== JSON.stringify(trigger?.variable_mapping ?? {}),
@@ -561,6 +591,28 @@ function CarritoAbandonadoDialog({
                 </SelectContent>
               </Select>
             </div>
+
+            {cabeceraMultimedia ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-cart-header-media">URL cabecera (HTTPS público)</Label>
+                <Input
+                  id="wa-cart-header-media"
+                  key={`cart-hdr-${trigger.updated_at}`}
+                  defaultValue={trigger.template_header_media_url ?? ""}
+                  disabled={guardando}
+                  placeholder="https://…"
+                  onBlur={(e) => {
+                    const v = e.target.value.trim() || null;
+                    const prev = (trigger.template_header_media_url ?? "").trim() || null;
+                    if (v !== prev) onActualizar({ template_header_media_url: v });
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Meta lo exige para plantillas con imagen/video/documento en cabecera; guardá con tab o clic fuera antes
+                  de probar.
+                </p>
+              </div>
+            ) : null}
 
             {totalVars > 0 ? (
               <div className="rounded-md border border-border p-3">

@@ -13,7 +13,7 @@ export async function GET() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("whatsapp_triggers")
-    .select("trigger_key, enabled, template_name, template_language, variable_mapping, updated_at");
+    .select("trigger_key, enabled, template_name, template_language, variable_mapping, template_header_media_url, updated_at");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ triggers: data ?? [] });
 }
@@ -28,6 +28,7 @@ export async function PUT(req: Request) {
     template_name?: string | null;
     template_language?: string;
     variable_mapping?: Record<string, string>;
+    template_header_media_url?: string | null;
   };
   try {
     body = await req.json();
@@ -45,6 +46,9 @@ export async function PUT(req: Request) {
   if (body.template_name !== undefined) patch.template_name = body.template_name || null;
   if (body.template_language !== undefined) patch.template_language = body.template_language || "es";
   if (body.variable_mapping !== undefined) patch.variable_mapping = body.variable_mapping ?? {};
+  if (body.template_header_media_url !== undefined) {
+    patch.template_header_media_url = body.template_header_media_url?.trim() || null;
+  }
 
   const supabase = getSupabaseAdmin();
   const { error } = await supabase

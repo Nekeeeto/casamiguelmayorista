@@ -5,6 +5,10 @@ import type {
   WhatsappSendParameter,
 } from "@/lib/whatsapp-cloud-api";
 
+export type MediaHeaderEnvio =
+  | { tipo: "image" | "video" | "document"; link: string; filename?: string }
+  | null;
+
 export type ParamSlot =
   | { kind: "positional"; index: number }
   | { kind: "named"; name: string };
@@ -126,7 +130,33 @@ export function normalizarTemplate(t: WhatsappTemplate): TemplateNormalizado {
   };
 }
 
-type MediaHeaderEnvio = { tipo: "image" | "video" | "document"; link: string; filename?: string } | null;
+/**
+ * True si Meta exige enviar parámetro de cabecera multimedia al disparar el template.
+ */
+export function plantillaRequiereCabeceraMultimedia(
+  template: Pick<WhatsappTemplate, "components">,
+): boolean {
+  const headerComp = template.components?.find((c) => c.type === "HEADER");
+  const fmt = headerComp?.format;
+  return fmt != null && ["IMAGE", "VIDEO", "DOCUMENT"].includes(fmt);
+}
+
+/**
+ * Convierte URL guardada en el payload `components` del envío (solo si el template tiene header multimedia).
+ */
+export function resolverMediaHeaderEnvio(
+  template: Pick<WhatsappTemplate, "components">,
+  url: string | null | undefined,
+): MediaHeaderEnvio {
+  const trimmed = typeof url === "string" ? url.trim() : "";
+  if (!trimmed) return null;
+  const headerComp = template.components?.find((c) => c.type === "HEADER");
+  const fmt = headerComp?.format;
+  if (fmt === "IMAGE") return { tipo: "image", link: trimmed };
+  if (fmt === "VIDEO") return { tipo: "video", link: trimmed };
+  if (fmt === "DOCUMENT") return { tipo: "document", link: trimmed, filename: "adjunto" };
+  return null;
+}
 
 /**
  * Arma `components` para POST template: respeta header multimedia vs texto, body y footer, y nombres de parámetro Meta.
