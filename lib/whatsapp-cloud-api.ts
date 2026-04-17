@@ -162,6 +162,49 @@ export async function listApprovedTemplates(
   return todas;
 }
 
+export type PayloadCrearPlantilla = {
+  name: string;
+  language: string;
+  category: WhatsappTemplate["category"];
+  components: WhatsappTemplateComponent[];
+};
+
+export type ResultadoCrearPlantilla = {
+  id: string;
+  status?: string;
+  category?: string;
+};
+
+/** POST /{waba-id}/message_templates — alta en Meta (queda en revisión hasta aprobación). */
+export async function createMessageTemplate(
+  payload: PayloadCrearPlantilla,
+  configOverride?: WhatsappConfigResuelto,
+): Promise<ResultadoCrearPlantilla> {
+  const config = configOverride ?? (await leerConfigWhatsapp());
+  const { wabaId, accessToken } = assertConfig(config);
+  return fetchGraph<ResultadoCrearPlantilla>(`/${wabaId}/message_templates`, accessToken, {
+    method: "POST",
+    body: JSON.stringify({
+      name: payload.name,
+      language: payload.language,
+      category: payload.category,
+      components: payload.components,
+    }),
+  });
+}
+
+/** DELETE /{template-id} — borra plantilla en Meta (id devuelto al listar). */
+export async function deleteMessageTemplate(
+  templateId: string,
+  configOverride?: WhatsappConfigResuelto,
+): Promise<void> {
+  const config = configOverride ?? (await leerConfigWhatsapp());
+  const { accessToken } = assertConfig(config);
+  await fetchGraph<unknown>(`/${templateId}`, accessToken, {
+    method: "DELETE",
+  });
+}
+
 /** POST /{phone-number-id}/messages — texto libre (solo dentro de la ventana de 24hs). */
 export async function sendTextMessage(
   to: string,

@@ -3,9 +3,15 @@ import { createHmac, timingSafeEqual } from "crypto";
 
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { leerConfigWhatsapp } from "@/lib/whatsapp-config";
-import { detectarKeywordOptOut, marcarOptIn, marcarOptOut } from "@/lib/whatsapp-optout";
-import { leerSystemTemplate } from "@/lib/whatsapp-system-templates";
-import { sendTextMessage } from "@/lib/whatsapp-cloud-api";
+import {
+  KEYWORDS_OPT_IN_DEFAULT,
+  KEYWORDS_OPT_OUT_DEFAULT,
+  detectarKeywordOptOut,
+  marcarOptIn,
+  marcarOptOut,
+  setsDesdeCsv,
+} from "@/lib/whatsapp-optout";
+import { enviarConfirmacionKeyword } from "@/lib/whatsapp-system-templates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,13 +120,13 @@ export async function POST(req: Request) {
 
 async function procesarPayload(payload: MetaPayload) {
   const supabase = getSupabaseAdmin();
-  const config = await leerConfigWhatsapp().catch(() => null);
+  const waConfig = await leerConfigWhatsapp().catch(() => null);
 
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       const value = change.value;
       if (!value) continue;
-      const toPhone = value.metadata?.display_phone_number ?? config?.valores.phone_number_id ?? "";
+      const toPhone = value.metadata?.display_phone_number ?? waConfig?.valores.phone_number_id ?? "";
 
       for (const status of value.statuses ?? []) {
         const { error } = await supabase
@@ -171,13 +177,15 @@ async function procesarPayload(payload: MetaPayload) {
           .eq("telefono", mensaje.from);
 
         if (mensaje.type === "text" && mensaje.text?.body) {
-          const intencion = detectarKeywordOptOut(mensaje.text.body);
+          const sets = waConfig
+            ? setsDesdeCsv(waConfig.automations.keywords_opt_out, waConfig.automations.keywords_opt_in)
+            : setsDesdeCsv(KEYWORDS_OPT_OUT_DEFAULT, KEYWORDS_OPT_IN_DEFAULT);
+          const intencion = detectarKeywordOptOut(mensaje.text.body, sets);
           if (intencion === "opt_out") {
             try {
               await marcarOptOut(mensaje.from);
-              const tpl = await leerSystemTemplate("opt_out_confirmacion").catch(() => null);
-              if (tpl?.texto && config) {
-                await sendTextMessage(mensaje.from, tpl.texto, config).catch((err) => {
+              if (waConfig) {
+                await enviarConfirmacionKeyword(mensaje.from, "opt_out_confirmacion", waConfig).catch((err) => {
                   console.error("[whatsapp webhook] auto opt-out reply:", err);
                 });
               }
@@ -187,14 +195,28 @@ async function procesarPayload(payload: MetaPayload) {
           } else if (intencion === "opt_in") {
             try {
               await marcarOptIn(mensaje.from);
-              const tpl = await leerSystemTemplate("opt_in_confirmacion").catch(() => null);
-              if (tpl?.texto && config) {
-                await sendTextMessage(mensaje.from, tpl.texto, config).catch((err) => {
+              if (waConfig) {
+                await enviarConfirmacionKeyword(mensaje.from, "opt_in_confirmacion", waConfig).catch((err) => {
                   console.error("[whatsapp webhook] auto opt-in reply:", err);
                 });
               }
             } catch (error) {
               console.error("[whatsapp webhook] opt_in error:", error);
+            }
+          } else if (waConfig?.automations.greeting_enabled && waConfig) {
+            try {
+              const { count } = await supabase
+                .from("whatsapp_messages")
+                .select("id", { count: "exact", head: true })
+                .eq("from_phone", mensaje.from)
+                .eq("direction", "in");
+              if ((count ?? 0) === 1) {
+                await enviarConfirmacionKeyword(mensaje.from, "greeting_auto", waConfig).catch((err) => {
+                  console.error("[whatsapp webhook] greeting reply:", err);
+                });
+              }
+            } catch (error) {
+              console.error("[whatsapp webhook] greeting error:", error);
             }
           }
         }

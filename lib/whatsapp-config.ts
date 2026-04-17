@@ -1,10 +1,19 @@
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
+import { KEYWORDS_OPT_IN_DEFAULT, KEYWORDS_OPT_OUT_DEFAULT } from "@/lib/whatsapp-optout";
+
 export type WhatsappConfigValores = {
   phone_number_id: string;
   access_token: string;
   webhook_verify_token: string;
   waba_id: string;
+};
+
+export type WhatsappAutomationsConfig = {
+  keywords_opt_out: string;
+  keywords_opt_in: string;
+  greeting_enabled: boolean;
+  delay_enabled: boolean;
 };
 
 export type WhatsappPricingMap = {
@@ -20,6 +29,7 @@ export type WhatsappConfigResuelto = {
   pricing: WhatsappPricingMap;
   fuente: WhatsappConfigFuente;
   updatedAt: string | null;
+  automations: WhatsappAutomationsConfig;
 };
 
 const PRICING_DEFAULT: WhatsappPricingMap = {
@@ -36,6 +46,10 @@ type FilaConfig = {
   waba_id: string | null;
   pricing: Partial<WhatsappPricingMap> | null;
   updated_at: string;
+  keywords_opt_out: string | null;
+  keywords_opt_in: string | null;
+  automation_greeting_enabled: boolean | null;
+  automation_delay_enabled: boolean | null;
 };
 
 function valorEnv(nombre: string): string {
@@ -66,7 +80,9 @@ export async function leerConfigWhatsapp(): Promise<WhatsappConfigResuelto> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("whatsapp_config")
-    .select("id, phone_number_id, access_token, webhook_verify_token, waba_id, pricing, updated_at")
+    .select(
+      "id, phone_number_id, access_token, webhook_verify_token, waba_id, pricing, updated_at, keywords_opt_out, keywords_opt_in, automation_greeting_enabled, automation_delay_enabled",
+    )
     .eq("id", 1)
     .maybeSingle<FilaConfig>();
 
@@ -99,19 +115,33 @@ export async function leerConfigWhatsapp(): Promise<WhatsappConfigResuelto> {
     authentication: Number(data?.pricing?.authentication ?? PRICING_DEFAULT.authentication),
   };
 
+  const automations: WhatsappAutomationsConfig = {
+    keywords_opt_out: (data?.keywords_opt_out ?? "").trim() || KEYWORDS_OPT_OUT_DEFAULT,
+    keywords_opt_in: (data?.keywords_opt_in ?? "").trim() || KEYWORDS_OPT_IN_DEFAULT,
+    greeting_enabled: data?.automation_greeting_enabled ?? true,
+    delay_enabled: data?.automation_delay_enabled ?? false,
+  };
+
   return {
     valores,
     pricing,
     fuente: fuenteDe(dbValores, envValores),
     updatedAt: data?.updated_at ?? null,
+    automations,
   };
 }
 
-export type WhatsappConfigPartial = Partial<WhatsappConfigValores> & { pricing?: Partial<WhatsappPricingMap> };
+export type WhatsappConfigPartial = Partial<WhatsappConfigValores> & {
+  pricing?: Partial<WhatsappPricingMap>;
+  keywords_opt_out?: string;
+  keywords_opt_in?: string;
+  automation_greeting_enabled?: boolean;
+  automation_delay_enabled?: boolean;
+};
 
 export async function guardarConfigWhatsapp(partial: WhatsappConfigPartial): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const patch: Record<string, unknown> = { id: 1 };
+  const patch: Record<string, unknown> = {};
   if (partial.phone_number_id !== undefined) patch.phone_number_id = partial.phone_number_id || null;
   if (partial.access_token !== undefined) patch.access_token = partial.access_token || null;
   if (partial.webhook_verify_token !== undefined) patch.webhook_verify_token = partial.webhook_verify_token || null;
@@ -120,7 +150,20 @@ export async function guardarConfigWhatsapp(partial: WhatsappConfigPartial): Pro
     const actual = await leerConfigWhatsapp();
     patch.pricing = { ...actual.pricing, ...partial.pricing };
   }
-  const { error } = await supabase.from("whatsapp_config").upsert(patch, { onConflict: "id" });
+  if (partial.keywords_opt_out !== undefined) {
+    patch.keywords_opt_out = partial.keywords_opt_out?.trim() || KEYWORDS_OPT_OUT_DEFAULT;
+  }
+  if (partial.keywords_opt_in !== undefined) {
+    patch.keywords_opt_in = partial.keywords_opt_in?.trim() || KEYWORDS_OPT_IN_DEFAULT;
+  }
+  if (partial.automation_greeting_enabled !== undefined) {
+    patch.automation_greeting_enabled = partial.automation_greeting_enabled;
+  }
+  if (partial.automation_delay_enabled !== undefined) {
+    patch.automation_delay_enabled = partial.automation_delay_enabled;
+  }
+  if (Object.keys(patch).length === 0) return;
+  const { error } = await supabase.from("whatsapp_config").update(patch).eq("id", 1);
   if (error) throw new Error(`No se pudo guardar whatsapp_config: ${error.message}`);
 }
 

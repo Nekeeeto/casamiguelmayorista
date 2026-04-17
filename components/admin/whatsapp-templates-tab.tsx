@@ -2,13 +2,29 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Loader2, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Copy, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
+import {
+  WhatsappMetaTemplateEditorDialog,
+  type PlantillaDuplicarPayload,
+} from "@/components/admin/whatsapp-meta-template-editor-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { WhatsappTemplateComponent } from "@/lib/whatsapp-cloud-api";
 import { cn } from "@/lib/utils";
+import { formularioDesdeComponentesMeta } from "@/lib/whatsapp-meta-template-payload";
 
 type TemplatePlaceholder = {
   tipo: "header" | "body" | "footer";
@@ -32,6 +48,7 @@ type TemplateComponent = {
 };
 
 type TemplateRespuesta = {
+  id: string | null;
   name: string;
   language: string;
   category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
@@ -62,56 +79,109 @@ function varianteEstado(estado: TemplateRespuesta["status"]): VarianteBadge {
   return "warning";
 }
 
+function vistaPreviaCorta(t: TemplateRespuesta): string {
+  const body = t.placeholders.body?.texto?.trim();
+  if (body) return body.length > 90 ? `${body.slice(0, 90)}…` : body;
+  if (t.placeholders.headerFormat && t.placeholders.headerFormat !== "TEXT") {
+    return `[Header ${t.placeholders.headerFormat}]`;
+  }
+  return "—";
+}
+
 export function WhatsappTemplatesTab() {
   const [cargando, setCargando] = useState(true);
   const [templates, setTemplates] = useState<TemplateRespuesta[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [soloAprobados, setSoloAprobados] = useState(true);
   const [filtro, setFiltro] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState<string>("all");
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
+  const [editorAbierto, setEditorAbierto] = useState(false);
+  const [duplicarDe, setDuplicarDe] = useState<PlantillaDuplicarPayload | null>(null);
+  const [borrarMetaId, setBorrarMetaId] = useState<string | null>(null);
+  const [borrando, setBorrando] = useState(false);
 
-  const cargar = useCallback(
-    async (opcion: { soloAprobados: boolean }) => {
-      setCargando(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/admin/whatsapp/templates?soloAprobados=${opcion.soloAprobados ? "true" : "false"}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          const payload = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(payload.error ?? `HTTP ${res.status}`);
-        }
-        const data = (await res.json()) as { templates: TemplateRespuesta[] };
-        setTemplates(data.templates);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Error desconocido.");
-        toast.error("No se pudieron listar los templates.", {
-          description: err instanceof Error ? err.message : undefined,
-        });
-      } finally {
-        setCargando(false);
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/whatsapp/templates?soloAprobados=false", {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? `HTTP ${res.status}`);
       }
-    },
-    [],
-  );
+      const data = (await res.json()) as { templates: TemplateRespuesta[] };
+      setTemplates(data.templates);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido.");
+      toast.error("No se pudieron listar los templates.", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setCargando(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void cargar({ soloAprobados });
-  }, [cargar, soloAprobados]);
+    void cargar();
+  }, [cargar]);
 
   const filtradas = useMemo(() => {
+    let list = templates;
     const q = filtro.trim().toLowerCase();
-    if (!q) return templates;
-    return templates.filter(
-      (t) => t.name.toLowerCase().includes(q) || t.language.toLowerCase().includes(q),
-    );
-  }, [filtro, templates]);
+    if (q) {
+      list = list.filter(
+        (t) => t.name.toLowerCase().includes(q) || t.language.toLowerCase().includes(q),
+      );
+    }
+    if (filtroEstado !== "all") {
+      list = list.filter((t) => t.status === filtroEstado);
+    }
+    return list;
+  }, [filtro, filtroEstado, templates]);
 
   const activa = useMemo(
     () => templates.find((t) => `${t.name}-${t.language}` === seleccionada) ?? null,
     [seleccionada, templates],
   );
+
+  const abrirNueva = () => {
+    setDuplicarDe(null);
+    setEditorAbierto(true);
+  };
+
+  const abrirDuplicar = (t: TemplateRespuesta) => {
+    const fragmentos = formularioDesdeComponentesMeta(t.components as WhatsappTemplateComponent[]);
+    const payload: PlantillaDuplicarPayload = {
+      nombreSugerido: `${t.name}_copia`,
+      idioma: t.language,
+      categoria: t.category,
+      ...fragmentos,
+    };
+    setDuplicarDe(payload);
+    setEditorAbierto(true);
+  };
+
+  const confirmarBorrar = async () => {
+    if (!borrarMetaId) return;
+    setBorrando(true);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/templates/${encodeURIComponent(borrarMetaId)}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      toast.success("Plantilla eliminada en Meta.");
+      setBorrarMetaId(null);
+      setSeleccionada(null);
+      await cargar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo borrar.");
+    } finally {
+      setBorrando(false);
+    }
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
@@ -119,11 +189,16 @@ export function WhatsappTemplatesTab() {
         <CardHeader className="flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Templates de Meta</CardTitle>
-            <CardDescription>Plantillas aprobadas en tu WABA. Se sincronizan en cada apertura.</CardDescription>
+            <CardDescription>
+              Listado desde tu WABA; podés crear nuevas (quedan en revisión hasta que Meta las apruebe).
+            </CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            <div className="relative min-w-[160px] flex-1 sm:flex-initial">
+              <Search
+                className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
               <Input
                 className="pl-8"
                 placeholder="Buscar…"
@@ -131,21 +206,25 @@ export function WhatsappTemplatesTab() {
                 onChange={(event) => setFiltro(event.target.value)}
               />
             </div>
-            <Button
-              variant={soloAprobados ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSoloAprobados((v) => !v)}
-            >
-              {soloAprobados ? "Solo aprobados" : "Todos los estados"}
+            <Select value={filtroEstado} onValueChange={setFiltroEstado}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                <SelectItem value="APPROVED">Aprobado</SelectItem>
+                <SelectItem value="PENDING">Pendiente</SelectItem>
+                <SelectItem value="REJECTED">Rechazado</SelectItem>
+                <SelectItem value="PAUSED">Pausado</SelectItem>
+                <SelectItem value="DISABLED">Deshabilitado</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="sm" onClick={abrirNueva}>
+              <Plus className="size-4" /> Nueva plantilla
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void cargar({ soloAprobados })}
-              disabled={cargando}
-            >
+            <Button variant="outline" size="sm" onClick={() => void cargar()} disabled={cargando}>
               {cargando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-              Refrescar
+              Sincronizar
             </Button>
           </div>
         </CardHeader>
@@ -165,35 +244,68 @@ export function WhatsappTemplatesTab() {
           ) : filtradas.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay templates para mostrar.</p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {filtradas.map((t) => {
-                const id = `${t.name}-${t.language}`;
-                const activo = id === seleccionada;
-                return (
-                  <button
-                    type="button"
-                    key={id}
-                    onClick={() => setSeleccionada(id)}
-                    className={cn(
-                      "flex flex-col gap-2 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-accent",
-                      activo && "border-primary/60 bg-accent/40",
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium text-foreground">{t.name}</span>
-                      <Badge variante={varianteEstado(t.status)}>{ESTADO_LABEL[t.status]}</Badge>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <Badge variante="default">{CATEGORIA_LABEL[t.category]}</Badge>
-                      <span>Idioma: {t.language}</span>
-                      <span>{t.placeholders.totalVariables} variables</span>
-                      {t.placeholders.headerFormat && t.placeholders.headerFormat !== "TEXT" ? (
-                        <span>Header: {t.placeholders.headerFormat}</span>
-                      ) : null}
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[140px]">Plantilla</TableHead>
+                    <TableHead className="min-w-[200px]">Vista previa</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtradas.map((t) => {
+                    const rowId = `${t.name}-${t.language}`;
+                    const sel = rowId === seleccionada;
+                    return (
+                      <TableRow
+                        key={rowId}
+                        className={cn("cursor-pointer", sel && "bg-muted/50")}
+                        onClick={() => setSeleccionada(rowId)}
+                      >
+                        <TableCell className="align-top">
+                          <div className="font-medium">{t.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {CATEGORIA_LABEL[t.category]} · {t.language}
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-[280px] align-top text-xs text-muted-foreground">
+                          <span className="line-clamp-3 whitespace-pre-wrap">{vistaPreviaCorta(t)}</span>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <Badge variante={varianteEstado(t.status)}>{ESTADO_LABEL[t.status]}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right align-top">
+                          <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8"
+                              title="Duplicar como nueva"
+                              onClick={() => abrirDuplicar(t)}
+                            >
+                              <Copy className="size-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-destructive hover:text-destructive"
+                              title="Eliminar en Meta"
+                              disabled={!t.id}
+                              onClick={() => t.id && setBorrarMetaId(t.id)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
@@ -203,7 +315,7 @@ export function WhatsappTemplatesTab() {
         <CardHeader>
           <CardTitle>Vista previa</CardTitle>
           <CardDescription>
-            {activa ? `${activa.name} — ${activa.language}` : "Elegí un template para ver su contenido."}
+            {activa ? `${activa.name} — ${activa.language}` : "Elegí una fila para ver el contenido."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -233,17 +345,17 @@ export function WhatsappTemplatesTab() {
               ) : null}
               {activa.placeholders.totalVariables > 0 ? (
                 <div className="rounded-md border border-border p-3">
-                  <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Variables detectadas</p>
+                  <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Variables</p>
                   <ul className="space-y-1">
                     {Array.from({ length: activa.placeholders.totalVariables }, (_, i) => (
                       <li key={i} className="text-xs text-muted-foreground">
-                        <code className="rounded bg-muted px-1">{`{{${i + 1}}}`}</code> → se completa al enviar
+                        <code className="rounded bg-muted px-1">{`{{${i + 1}}}`}</code>
                       </li>
                     ))}
                   </ul>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Sin variables — se envía tal cual.</p>
+                <p className="text-xs text-muted-foreground">Sin variables posicionales en texto.</p>
               )}
             </div>
           ) : (
@@ -251,6 +363,42 @@ export function WhatsappTemplatesTab() {
           )}
         </CardContent>
       </Card>
+
+      <WhatsappMetaTemplateEditorDialog
+        abierto={editorAbierto}
+        onAbiertoChange={(open) => {
+          setEditorAbierto(open);
+          if (!open) setDuplicarDe(null);
+        }}
+        onCreado={() => void cargar()}
+        duplicarDe={duplicarDe}
+      />
+
+      <Dialog open={borrarMetaId !== null} onOpenChange={(o) => !o && setBorrarMetaId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Eliminar plantilla en Meta?</DialogTitle>
+            <DialogDescription>
+              Se borra del administrador de WhatsApp. Los envíos que la usen dejarán de funcionar. No se puede
+              deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setBorrarMetaId(null)} disabled={borrando}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void confirmarBorrar()}
+              disabled={borrando}
+            >
+              {borrando ? <Loader2 className="size-4 animate-spin" /> : null}
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -18,6 +18,7 @@ export async function GET() {
       fuente: config.fuente,
       updatedAt: config.updatedAt,
       pricing: config.pricing,
+      automations: config.automations,
       valores: {
         phone_number_id: config.valores.phone_number_id,
         waba_id: config.valores.waba_id,

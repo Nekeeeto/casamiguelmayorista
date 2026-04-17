@@ -1,6 +1,18 @@
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { parseCsvConEncabezados, indiceColumna } from "@/lib/csv-utils";
+import { parseCsvConEncabezados } from "@/lib/csv-utils";
 import { esTelefonoUyValido, normalizarTelefonoWaUruguay } from "@/lib/telefono-wa-uruguay";
+import {
+  detectarMapeoContactosCsv,
+  nombreDesdeFila,
+  notasDesdeFila,
+  optedOutDesdeFila,
+  tagsDesdeFila,
+  validarMapeoContactosCsv,
+  type MapeoColumnasContacto,
+} from "@/lib/whatsapp-contactos-csv";
+
+export type { MapeoColumnasContacto };
+export { detectarMapeoContactosCsv } from "@/lib/whatsapp-contactos-csv";
 
 export type ContactoWhatsapp = {
   id: string;
@@ -140,27 +152,40 @@ export async function eliminarContacto(id: string): Promise<void> {
   if (error) throw new Error(`No se pudo eliminar contacto: ${error.message}`);
 }
 
-export async function importarContactosCsv(csv: string): Promise<ResumenImportCsv> {
+export async function importarContactosCsv(
+  csv: string,
+  mapeoEnviado?: MapeoColumnasContacto | null,
+): Promise<ResumenImportCsv> {
   const { encabezados, filas } = parseCsvConEncabezados(csv);
   if (encabezados.length === 0) {
     throw new Error("CSV vacío.");
   }
-  const idxTelefono = indiceColumna(encabezados, "telefono");
-  const idxTel2 = idxTelefono >= 0 ? idxTelefono : indiceColumna(encabezados, "teléfono");
-  if (idxTel2 < 0) throw new Error("Falta columna 'telefono' en el CSV.");
-  const idxNombre = indiceColumna(encabezados, "nombre");
-  const idxTags = indiceColumna(encabezados, "tags");
-  const idxNotas = indiceColumna(encabezados, "notas");
+  const mapeo =
+    mapeoEnviado != null
+      ? validarMapeoContactosCsv(mapeoEnviado, encabezados.length)
+      : detectarMapeoContactosCsv(encabezados);
+  if (!mapeo) {
+    throw new Error(
+      'No se detectó columna de teléfono. Usá «telefono», «WhatsApp Number» o mapeá columnas en el diálogo.',
+    );
+  }
 
   const supabase = getSupabaseAdmin();
   const resumen: ResumenImportCsv = { creados: 0, duplicados: 0, invalidos: [] };
-  const aInsertar: { nombre: string; telefono: string; tags: string[]; notas: string }[] = [];
+  const aInsertar: {
+    nombre: string;
+    telefono: string;
+    tags: string[];
+    notas: string;
+    opted_out: boolean;
+    opted_out_at: string | null;
+  }[] = [];
   const vistosEnLote = new Set<string>();
 
   for (let i = 0; i < filas.length; i++) {
     const fila = filas[i];
     const numeroFila = i + 2;
-    const telRaw = fila[idxTel2]?.trim() ?? "";
+    const telRaw = fila[mapeo.telefono]?.trim() ?? "";
     const telefono = normalizarTelefonoWaUruguay(telRaw);
     if (!telefono || !esTelefonoUyValido(telefono)) {
       resumen.invalidos.push({ fila: numeroFila, motivo: `Teléfono inválido: "${telRaw}"` });
@@ -171,16 +196,18 @@ export async function importarContactosCsv(csv: string): Promise<ResumenImportCs
       continue;
     }
     vistosEnLote.add(telefono);
-    const nombre = idxNombre >= 0 ? fila[idxNombre]?.trim() ?? "" : "";
-    const tagsTexto = idxTags >= 0 ? fila[idxTags] ?? "" : "";
-    const tags = limpiarTags(
-      tagsTexto
-        .split(/[|,]/)
-        .map((t) => t.trim())
-        .filter(Boolean),
-    );
-    const notas = idxNotas >= 0 ? fila[idxNotas]?.trim() ?? "" : "";
-    aInsertar.push({ nombre, telefono, tags, notas });
+    const nombre = nombreDesdeFila(fila, mapeo);
+    const tags = limpiarTags(tagsDesdeFila(fila, mapeo));
+    const notas = notasDesdeFila(fila, mapeo);
+    const optedOut = optedOutDesdeFila(fila, mapeo);
+    aInsertar.push({
+      nombre,
+      telefono,
+      tags,
+      notas,
+      opted_out: optedOut,
+      opted_out_at: optedOut ? new Date().toISOString() : null,
+    });
   }
 
   if (aInsertar.length === 0) return resumen;

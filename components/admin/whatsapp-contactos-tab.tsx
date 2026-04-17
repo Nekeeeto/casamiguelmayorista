@@ -36,7 +36,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { parseCsvConEncabezados } from "@/lib/csv-utils";
 import { formatearTelefonoParaUi } from "@/lib/telefono-wa-uruguay";
+import {
+  detectarMapeoContactosCsv,
+  type MapeoColumnasContacto,
+} from "@/lib/whatsapp-contactos-csv";
 import { WhatsappContactoDialog, type ContactoFormularioDatos } from "@/components/admin/whatsapp-contacto-dialog";
 
 type Contacto = {
@@ -54,6 +59,21 @@ type Contacto = {
 type OrdenCol = "nombre" | "fecha_creacion" | "ultimo_mensaje";
 type Direccion = "asc" | "desc";
 type OptOutFiltro = "todos" | "activos" | "baja";
+
+const OMIT_COL = "__omit__";
+
+function mapeoContactoListo(m: Partial<MapeoColumnasContacto>): MapeoColumnasContacto | null {
+  if (m.telefono === undefined) return null;
+  const o: MapeoColumnasContacto = { telefono: m.telefono };
+  if (m.nombre !== undefined) o.nombre = m.nombre;
+  if (m.firstName !== undefined) o.firstName = m.firstName;
+  if (m.lastName !== undefined) o.lastName = m.lastName;
+  if (m.tags !== undefined) o.tags = m.tags;
+  if (m.notas !== undefined) o.notas = m.notas;
+  if (m.status !== undefined) o.status = m.status;
+  if (m.listName !== undefined) o.listName = m.listName;
+  return o;
+}
 
 export function WhatsappContactosTab() {
   const [contactos, setContactos] = useState<Contacto[]>([]);
@@ -74,6 +94,8 @@ export function WhatsappContactosTab() {
     duplicados: number;
     invalidos: { fila: number; motivo: string }[];
   } | null>(null);
+  const [encabezadosImport, setEncabezadosImport] = useState<string[]>([]);
+  const [mapeoColumnas, setMapeoColumnas] = useState<Partial<MapeoColumnasContacto>>({});
   const [confirmarBorrar, setConfirmarBorrar] = useState<Contacto | null>(null);
   const [operando, setOperando] = useState<string | null>(null);
 
@@ -119,6 +141,18 @@ export function WhatsappContactosTab() {
     void cargarTags();
   }, [cargarTags]);
 
+  useEffect(() => {
+    if (!dialogImport || !csvTexto.trim()) {
+      setEncabezadosImport([]);
+      setMapeoColumnas({});
+      return;
+    }
+    const { encabezados } = parseCsvConEncabezados(csvTexto);
+    setEncabezadosImport(encabezados);
+    const detectado = detectarMapeoContactosCsv(encabezados);
+    setMapeoColumnas(detectado ?? {});
+  }, [dialogImport, csvTexto]);
+
   const cambiarOrden = (columna: OrdenCol) => {
     if (orden === columna) {
       setDireccion((d) => (d === "asc" ? "desc" : "asc"));
@@ -138,13 +172,18 @@ export function WhatsappContactosTab() {
     );
 
   const importar = async () => {
+    const mapEnv = mapeoContactoListo(mapeoColumnas);
+    if (!mapEnv) {
+      toast.error("Elegí la columna de teléfono.");
+      return;
+    }
     setImportando(true);
     setResultadoImport(null);
     try {
       const res = await fetch("/api/admin/whatsapp/contactos/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csv: csvTexto }),
+        body: JSON.stringify({ csv: csvTexto, mapeo: mapEnv }),
       });
       if (!res.ok) {
         const payload = (await res.json().catch(() => ({}))) as { error?: string };
@@ -423,12 +462,12 @@ export function WhatsappContactosTab() {
       />
 
       <Dialog open={dialogImport} onOpenChange={setDialogImport}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Importar contactos desde CSV</DialogTitle>
             <DialogDescription>
-              Encabezados soportados: <code>nombre</code>, <code>telefono</code> (obligatorio),{" "}
-              <code>tags</code> (separadas por <code>|</code> o <code>,</code>), <code>notas</code>.
+              Detectamos columnas tipo WANotifier (<code>WhatsApp Number</code>, <code>First Name</code> /{" "}
+              <code>Last Name</code>, <code>Status</code>, etc.). Si el archivo es distinto, mapeá cada campo abajo.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -448,12 +487,218 @@ export function WhatsappContactosTab() {
               <Label htmlFor="wa-csv-texto">…o pegá el contenido:</Label>
               <Textarea
                 id="wa-csv-texto"
-                rows={8}
+                rows={6}
                 value={csvTexto}
                 onChange={(event) => setCsvTexto(event.target.value)}
-                placeholder="nombre,telefono,tags,notas"
+                placeholder="Primera fila = encabezados. Ej. export WANotifier o nombre,telefono,tags"
               />
             </div>
+            {encabezadosImport.length > 0 ? (
+              <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Mapeo de columnas</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Teléfono *</Label>
+                    <Select
+                      value={mapeoColumnas.telefono !== undefined ? String(mapeoColumnas.telefono) : undefined}
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({ ...prev, telefono: Number(v) }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Elegí la columna" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Nombre (una columna)</Label>
+                    <Select
+                      value={
+                        mapeoColumnas.nombre !== undefined ? String(mapeoColumnas.nombre) : OMIT_COL
+                      }
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({
+                          ...prev,
+                          nombre: v === OMIT_COL ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={OMIT_COL}>— omitir —</SelectItem>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>First name</Label>
+                    <Select
+                      value={
+                        mapeoColumnas.firstName !== undefined ? String(mapeoColumnas.firstName) : OMIT_COL
+                      }
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({
+                          ...prev,
+                          firstName: v === OMIT_COL ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={OMIT_COL}>— omitir —</SelectItem>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Last name</Label>
+                    <Select
+                      value={
+                        mapeoColumnas.lastName !== undefined ? String(mapeoColumnas.lastName) : OMIT_COL
+                      }
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({
+                          ...prev,
+                          lastName: v === OMIT_COL ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={OMIT_COL}>— omitir —</SelectItem>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Tags</Label>
+                    <Select
+                      value={mapeoColumnas.tags !== undefined ? String(mapeoColumnas.tags) : OMIT_COL}
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({
+                          ...prev,
+                          tags: v === OMIT_COL ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={OMIT_COL}>— omitir —</SelectItem>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Lista (se agrega como tag)</Label>
+                    <Select
+                      value={
+                        mapeoColumnas.listName !== undefined ? String(mapeoColumnas.listName) : OMIT_COL
+                      }
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({
+                          ...prev,
+                          listName: v === OMIT_COL ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={OMIT_COL}>— omitir —</SelectItem>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Notas</Label>
+                    <Select
+                      value={mapeoColumnas.notas !== undefined ? String(mapeoColumnas.notas) : OMIT_COL}
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({
+                          ...prev,
+                          notas: v === OMIT_COL ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={OMIT_COL}>— omitir —</SelectItem>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Estado → baja (ej. unsubscribed)</Label>
+                    <Select
+                      value={mapeoColumnas.status !== undefined ? String(mapeoColumnas.status) : OMIT_COL}
+                      onValueChange={(v) =>
+                        setMapeoColumnas((prev) => ({
+                          ...prev,
+                          status: v === OMIT_COL ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={OMIT_COL}>— omitir —</SelectItem>
+                        {encabezadosImport.map((h, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {h || `Columna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Si definís «Nombre» y también First/Last, se usa «Nombre». «unsubscribed» marca opt-out al importar.
+                </p>
+              </div>
+            ) : null}
             {resultadoImport ? (
               <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
                 <p>
@@ -477,7 +722,10 @@ export function WhatsappContactosTab() {
             <Button variant="outline" onClick={() => setDialogImport(false)} disabled={importando}>
               Cerrar
             </Button>
-            <Button onClick={() => void importar()} disabled={importando || !csvTexto.trim()}>
+            <Button
+              onClick={() => void importar()}
+              disabled={importando || !csvTexto.trim() || mapeoColumnas.telefono === undefined}
+            >
               {importando ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
               Importar
             </Button>
