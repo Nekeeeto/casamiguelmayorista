@@ -33,6 +33,24 @@ export function esTriggerPedido(k: TriggerKey): k is TriggerKeyPedido {
 
 export type VariableMapping = Record<string, string>;
 
+/** Orden al evaluar listas manuales `woo_status_slugs` (el primero que coincida gana). */
+export const TRIGGER_PRIORIDAD_CAMBIO_ESTADO: readonly TriggerKeyPedido[] = [
+  "dac_shipping_receipt",
+  "wiser_review_request",
+  "order_pickup_ready",
+  "order_shipped",
+  "order_delivered",
+  "order_failed",
+  "order_cancelled",
+  "order_on_hold",
+  "order_confirmed",
+] as const;
+
+export type FilaTriggerPedidoWoo = {
+  trigger_key: TriggerKeyPedido;
+  woo_status_slugs: string[] | null;
+};
+
 type FilaTrigger = {
   trigger_key: TriggerKey;
   enabled: boolean;
@@ -400,5 +418,41 @@ export function triggerDesdeEstadoWoo(
   if (nuevo.includes("enviado-dac")) return "dac_shipping_receipt";
   if (nuevo.includes("wiser")) return "wiser_review_request";
   if (/(shipped|enviado|envio)/.test(nuevo)) return "order_shipped";
+  return null;
+}
+
+function normalizarSlugEstadoWebhook(slug: string): string {
+  return slug.trim().toLowerCase().replace(/^wc-/, "");
+}
+
+/**
+ * Si varias filas tienen el mismo slug en `woo_status_slugs`, gana la primera según `TRIGGER_PRIORIDAD_CAMBIO_ESTADO`.
+ * Si una fila tiene `woo_status_slugs` vacío, solo aplica la regla legacy cuando `triggerDesdeEstadoWoo` devuelve esa key.
+ */
+export function resolverTriggerKeyParaEstadoWoo(
+  nuevoEstado: string | undefined,
+  estadoAnterior: string | undefined,
+  filas: ReadonlyArray<FilaTriggerPedidoWoo>,
+): TriggerKeyPedido | null {
+  const n = normalizarSlugEstadoWebhook(nuevoEstado ?? "");
+  const a = normalizarSlugEstadoWebhook(estadoAnterior ?? "");
+  if (!n || n === a) return null;
+
+  const porKey = new Map(filas.map((f) => [f.trigger_key, f]));
+
+  for (const key of TRIGGER_PRIORIDAD_CAMBIO_ESTADO) {
+    const row = porKey.get(key);
+    const slugs = (row?.woo_status_slugs ?? [])
+      .map((s) => normalizarSlugEstadoWebhook(String(s)))
+      .filter(Boolean);
+    if (slugs.length > 0 && slugs.includes(n)) return key;
+  }
+
+  const legacy = triggerDesdeEstadoWoo(nuevoEstado, estadoAnterior);
+  if (!legacy) return null;
+  const legacySlugs = (porKey.get(legacy)?.woo_status_slugs ?? [])
+    .map((s) => normalizarSlugEstadoWebhook(String(s)))
+    .filter(Boolean);
+  if (legacySlugs.length === 0) return legacy;
   return null;
 }

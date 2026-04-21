@@ -3,7 +3,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse, after } from "next/server";
 
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { dispararTriggerPedido, triggerDesdeEstadoWoo } from "@/lib/whatsapp-woo-triggers";
+import {
+  TRIGGER_KEYS_PEDIDO,
+  dispararTriggerPedido,
+  resolverTriggerKeyParaEstadoWoo,
+  type FilaTriggerPedidoWoo,
+} from "@/lib/whatsapp-woo-triggers";
 
 export const runtime = "nodejs";
 
@@ -55,11 +60,23 @@ export async function POST(req: Request) {
         .maybeSingle<{ status: string }>();
       const estadoAnterior = previo?.status;
 
-      const trigger = triggerDesdeEstadoWoo(nuevoEstado, estadoAnterior);
-      if (trigger) {
-        await dispararTriggerPedido({ orderId, triggerKey: trigger }).catch((err) => {
-          console.error("[woo pedidos webhook] trigger error:", err);
-        });
+      const { data: filasTriggers, error: errFilas } = await supabase
+        .from("whatsapp_triggers")
+        .select("trigger_key, woo_status_slugs")
+        .in("trigger_key", [...TRIGGER_KEYS_PEDIDO]);
+      if (errFilas) {
+        console.error("[woo pedidos webhook] triggers read:", errFilas.message);
+      } else {
+        const filas: FilaTriggerPedidoWoo[] = (filasTriggers ?? []).map((row) => ({
+          trigger_key: row.trigger_key as FilaTriggerPedidoWoo["trigger_key"],
+          woo_status_slugs: Array.isArray(row.woo_status_slugs) ? row.woo_status_slugs : [],
+        }));
+        const trigger = resolverTriggerKeyParaEstadoWoo(nuevoEstado, estadoAnterior, filas);
+        if (trigger) {
+          await dispararTriggerPedido({ orderId, triggerKey: trigger }).catch((err) => {
+            console.error("[woo pedidos webhook] trigger error:", err);
+          });
+        }
       }
 
       await supabase

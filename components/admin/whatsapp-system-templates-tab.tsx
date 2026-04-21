@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { Loader2, SlidersHorizontal, Sparkles, Timer, UserMinus, UserPlus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   KEYWORDS_OPT_IN_DEFAULT,
@@ -67,6 +68,13 @@ const TITULO_TEMPLATE: Record<string, string> = {
   delay_auto: "Demora en respuesta",
   opt_out_confirmacion: "Baja / unsubscribe",
   opt_in_confirmacion: "Alta / subscribe",
+};
+
+const ICONO_TEMPLATE: Record<string, LucideIcon> = {
+  greeting_auto: Sparkles,
+  delay_auto: Timer,
+  opt_out_confirmacion: UserMinus,
+  opt_in_confirmacion: UserPlus,
 };
 
 type EdicionState = {
@@ -325,13 +333,20 @@ export function WhatsappSystemTemplatesTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Palabras y automatizaciones</CardTitle>
-          <CardDescription>
-            Palabras separadas por comas: el mensaje del contacto debe ser <strong>solo</strong> esa palabra (como en
-            WANotifier). Primero se evalúan baja/alta; si no coinciden y el saludo está activo, el{" "}
-            <strong>primer</strong> mensaje entrante dispara el saludo.
-          </CardDescription>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-primary">
+              <SlidersHorizontal className="size-5" aria-hidden />
+            </span>
+            <div className="min-w-0 space-y-1">
+              <CardTitle className="text-base leading-snug">Palabras y automatizaciones</CardTitle>
+              <CardDescription>
+                Palabras separadas por comas: el mensaje del contacto debe ser <strong>solo</strong> esa palabra (como
+                en WANotifier). Primero se evalúan baja/alta; si no coinciden y el saludo está activo, el{" "}
+                <strong>primer</strong> mensaje entrante dispara el saludo.
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -354,22 +369,29 @@ export function WhatsappSystemTemplatesTab() {
               />
             </div>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2">
-              <Checkbox
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-muted/25 px-3 py-3">
+              <div className="min-w-0 space-y-0.5 pr-2">
+                <Label htmlFor="wa-greet" className="text-sm font-medium leading-tight">
+                  Saludo automático
+                </Label>
+                <p className="text-xs text-muted-foreground">Primer mensaje del contacto (si no es baja/alta).</p>
+              </div>
+              <Switch
                 id="wa-greet"
                 checked={greetingOn}
-                onCheckedChange={(c) => setGreetingOn(c === true)}
+                onCheckedChange={setGreetingOn}
+                disabled={guardandoAuto}
               />
-              <Label htmlFor="wa-greet" className="font-normal">
-                Saludo automático (primer mensaje)
-              </Label>
             </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="wa-delay" checked={delayOn} onCheckedChange={(c) => setDelayOn(c === true)} />
-              <Label htmlFor="wa-delay" className="font-normal">
-                Demora — solo guarda plantilla (envío automático pendiente)
-              </Label>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-muted/25 px-3 py-3">
+              <div className="min-w-0 space-y-0.5 pr-2">
+                <Label htmlFor="wa-delay" className="text-sm font-medium leading-tight">
+                  Demora (plantilla)
+                </Label>
+                <p className="text-xs text-muted-foreground">Solo guarda plantilla; envío automático pendiente.</p>
+              </div>
+              <Switch id="wa-delay" checked={delayOn} onCheckedChange={setDelayOn} disabled={guardandoAuto} />
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -407,6 +429,7 @@ export function WhatsappSystemTemplatesTab() {
           templates.
         </p>
       ) : null}
+      <div className="grid gap-4 sm:grid-cols-2">
       {templatesOrdenados.map((t) => {
         const ed = edicion[t.key];
         if (!ed) return null;
@@ -425,19 +448,27 @@ export function WhatsappSystemTemplatesTab() {
             : 0;
 
         const titulo = TITULO_TEMPLATE[t.key] ?? t.key;
+        const IconoBloque = ICONO_TEMPLATE[t.key] ?? Sparkles;
         return (
-          <Card key={t.key}>
-            <CardHeader>
-              <div className="flex flex-wrap items-center gap-2">
-                <CardTitle className="text-base">{titulo}</CardTitle>
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">{t.key}</code>
-                {t.key === "delay_auto" ? (
-                  <Badge variante="warning">Webhook: envío no activo aún</Badge>
-                ) : null}
+          <Card key={t.key} className="flex h-full flex-col">
+            <CardHeader className="space-y-2 pb-3">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-primary">
+                  <IconoBloque className="size-5" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CardTitle className="text-base leading-snug">{titulo}</CardTitle>
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">{t.key}</code>
+                  </div>
+                  {t.key === "delay_auto" ? (
+                    <Badge variante="warning">Webhook: envío no activo aún</Badge>
+                  ) : null}
+                  <CardDescription className="text-xs leading-relaxed">{t.descripcion}</CardDescription>
+                </div>
               </div>
-              <CardDescription>{t.descripcion}</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="mt-auto flex flex-1 flex-col space-y-4 pt-0">
               <div className="space-y-1.5">
                 <Label>Tipo de respuesta</Label>
                 <Select
@@ -602,6 +633,7 @@ export function WhatsappSystemTemplatesTab() {
           </Card>
         );
       })}
+      </div>
     </div>
   );
 }

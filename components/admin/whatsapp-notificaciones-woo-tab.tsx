@@ -21,6 +21,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ import {
   type TriggerKey,
   type TriggerKeyPedido,
 } from "@/lib/whatsapp-woo-triggers";
+import { normalizarSlugEstadoPedidoWoo, type OpcionEstadoPedidoWoo } from "@/lib/woo-order-statuses-catalog";
 
 type Trigger = {
   trigger_key: TriggerKey;
@@ -47,6 +49,7 @@ type Trigger = {
   template_language: string;
   variable_mapping: Record<string, string>;
   template_header_media_url?: string | null;
+  woo_status_slugs?: string[] | null;
   updated_at: string;
 };
 
@@ -151,9 +154,17 @@ const CAMPOS_PEDIDO = [
 
 const RUTA_WEBHOOK_CARRITO = "/api/webhooks/funnelkit-carrito-abandonado";
 
+function slugsOrdenadosIguales(a: string[], b: string[]): boolean {
+  const na = [...a].map((s) => normalizarSlugEstadoPedidoWoo(s)).sort();
+  const nb = [...b].map((s) => normalizarSlugEstadoPedidoWoo(s)).sort();
+  if (na.length !== nb.length) return false;
+  return na.every((v, i) => v === nb[i]);
+}
+
 export function WhatsappNotificacionesWooTab() {
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [templates, setTemplates] = useState<TemplateLista[]>([]);
+  const [estadosWoo, setEstadosWoo] = useState<OpcionEstadoPedidoWoo[]>([]);
   const [cargando, setCargando] = useState(true);
   const [guardandoKey, setGuardandoKey] = useState<TriggerKey | null>(null);
   const [modalCarritoAbierto, setModalCarritoAbierto] = useState(false);
@@ -171,6 +182,15 @@ export function WhatsappNotificacionesWooTab() {
       const tpl = resTpl.ok ? ((await resTpl.json()) as { templates: TemplateLista[] }) : { templates: [] };
       setTriggers(t.triggers);
       setTemplates(tpl.templates);
+      try {
+        const resSt = await fetch("/api/admin/woo/order-statuses", { cache: "no-store" });
+        if (resSt.ok) {
+          const st = (await resSt.json()) as { statuses?: OpcionEstadoPedidoWoo[] };
+          setEstadosWoo(st.statuses ?? []);
+        }
+      } catch {
+        setEstadosWoo([]);
+      }
     } catch (error) {
       toast.error("No se pudieron cargar los triggers.", {
         description: error instanceof Error ? error.message : undefined,
@@ -315,6 +335,7 @@ export function WhatsappNotificacionesWooTab() {
               icon={cfg.icon}
               trigger={t as Trigger & { trigger_key: TriggerKeyPedido }}
               meta={{ titulo: cfg.titulo, descripcion: cfg.descripcion }}
+              opcionesEstadosWoo={estadosWoo}
               templates={templates}
               templateSeleccionada={templateSeleccionada}
               totalVars={totalVars}
@@ -344,6 +365,7 @@ type TriggerCardPedidoProps = {
   icon: LucideIcon;
   trigger: Trigger & { trigger_key: TriggerKeyPedido };
   meta: { titulo: string; descripcion: string };
+  opcionesEstadosWoo: OpcionEstadoPedidoWoo[];
   templates: TemplateLista[];
   templateSeleccionada?: TemplateLista;
   totalVars: number;
@@ -358,6 +380,7 @@ function TriggerCardPedido({
   icon: Icon,
   trigger,
   meta,
+  opcionesEstadosWoo,
   templates,
   templateSeleccionada,
   totalVars,
@@ -367,10 +390,23 @@ function TriggerCardPedido({
   onTestOrderIdChange,
   onProbar,
 }: TriggerCardPedidoProps) {
+  const slugsServidor = trigger.woo_status_slugs ?? [];
+  const [disparoModo, setDisparoModo] = useState<"auto" | "custom">(() =>
+    slugsServidor.length > 0 ? "custom" : "auto",
+  );
+  const [slugsSeleccion, setSlugsSeleccion] = useState<string[]>(() => [...slugsServidor]);
+  const [filtroEstado, setFiltroEstado] = useState("");
+
   const [mapping, setMapping] = useState<Record<string, string>>(trigger.variable_mapping ?? {});
   useEffect(() => {
     setMapping(trigger.variable_mapping ?? {});
   }, [trigger.variable_mapping]);
+
+  useEffect(() => {
+    const s = trigger.woo_status_slugs ?? [];
+    setDisparoModo(s.length > 0 ? "custom" : "auto");
+    setSlugsSeleccion([...s]);
+  }, [trigger.trigger_key, trigger.updated_at]);
 
   const cabeceraMultimedia = plantillaUsaCabeceraMultimedia(templateSeleccionada);
 
@@ -386,6 +422,34 @@ function TriggerCardPedido({
     () => JSON.stringify(mapping) !== JSON.stringify(trigger.variable_mapping ?? {}),
     [mapping, trigger.variable_mapping],
   );
+
+  const estadosFiltrados = useMemo(() => {
+    const q = filtroEstado.trim().toLowerCase();
+    if (!q) return opcionesEstadosWoo;
+    return opcionesEstadosWoo.filter(
+      (o) => o.slug.toLowerCase().includes(q) || o.label.toLowerCase().includes(q),
+    );
+  }, [filtroEstado, opcionesEstadosWoo]);
+
+  const disparoCambiado = useMemo(() => {
+    if (disparoModo === "auto") return slugsServidor.length > 0;
+    return !slugsOrdenadosIguales(slugsSeleccion, slugsServidor);
+  }, [disparoModo, slugsSeleccion, slugsServidor]);
+
+  const guardarDisparo = () => {
+    if (disparoModo === "custom" && slugsSeleccion.length === 0) {
+      toast.error("Elegí al menos un estado Woo o volvé a «Predeterminado».");
+      return;
+    }
+    onActualizar({
+      woo_status_slugs: disparoModo === "auto" ? [] : slugsSeleccion.map((s) => normalizarSlugEstadoPedidoWoo(s)),
+    });
+  };
+
+  const toggleSlug = (slug: string) => {
+    const n = normalizarSlugEstadoPedidoWoo(slug);
+    setSlugsSeleccion((prev) => (prev.includes(n) ? prev.filter((s) => s !== n) : [...prev, n]));
+  };
 
   return (
     <Card className="flex h-full flex-col">
@@ -409,6 +473,96 @@ function TriggerCardPedido({
         </label>
       </CardHeader>
       <CardContent className="mt-auto space-y-3 pt-0">
+        <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Label className="text-sm font-medium">Disparo</Label>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={!disparoCambiado || guardando}
+              onClick={() => guardarDisparo()}
+            >
+              {guardando ? <Loader2 className="size-4 animate-spin" /> : null}
+              Guardar disparo
+            </Button>
+          </div>
+          <Select
+            value={disparoModo}
+            onValueChange={(v) => {
+              const modo = v as "auto" | "custom";
+              setDisparoModo(modo);
+              if (modo === "auto") setSlugsSeleccion([]);
+            }}
+            disabled={guardando}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Predeterminado (reglas por tipo de notificación)</SelectItem>
+              <SelectItem value="custom">Estado de pedido Woo (elegir slugs)</SelectItem>
+            </SelectContent>
+          </Select>
+          {disparoModo === "custom" ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Match exacto con el slug del pedido al cambiar de estado. Evitá repetir el mismo slug en dos
+                notificaciones distintas.
+              </p>
+              {opcionesEstadosWoo.length === 0 ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  No se cargó el catálogo Woo (revisá credenciales / API). Podés guardar slugs si los conocés: no
+                  aparecen hasta recargar con API OK.
+                </p>
+              ) : null}
+              <Input
+                value={filtroEstado}
+                onChange={(e) => setFiltroEstado(e.target.value)}
+                placeholder="Buscar estado…"
+                disabled={guardando}
+                className="h-8 text-sm"
+              />
+              <div className="max-h-40 space-y-1.5 overflow-y-auto rounded border border-border/80 bg-background/50 p-2">
+                {estadosFiltrados.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Sin coincidencias.</p>
+                ) : (
+                  estadosFiltrados.map((o) => {
+                    const marcado = slugsSeleccion.includes(normalizarSlugEstadoPedidoWoo(o.slug));
+                    return (
+                      <label
+                        key={o.slug}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/60"
+                      >
+                        <Checkbox
+                          checked={marcado}
+                          onCheckedChange={() => toggleSlug(o.slug)}
+                          disabled={guardando}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="font-mono text-xs text-muted-foreground">{o.slug}</span>
+                          <span className="ml-2 text-foreground">{o.label}</span>
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Seleccionados: {slugsSeleccion.length}
+                {slugsSeleccion.length > 0 ? (
+                  <span className="ml-1 font-mono">({slugsSeleccion.slice(0, 6).join(", ")}
+                  {slugsSeleccion.length > 6 ? "…" : ""})</span>
+                ) : null}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Meta usa las reglas por defecto según el nombre de esta notificación (p. ej. failed → pedido fallido).
+            </p>
+          )}
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Template</Label>

@@ -54,7 +54,7 @@ export function WhatsappMarketingPanel() {
             <TabIconLabel icon={LayoutTemplate} label="Templates Meta" />
           </TabsTrigger>
           <TabsTrigger value="system-templates" className="px-3 py-2">
-            <TabIconLabel icon={MessageSquareReply} label="Respuestás Rápidas" />
+            <TabIconLabel icon={MessageSquareReply} label="Respuestas rápidas" />
           </TabsTrigger>
           <TabsTrigger value="contactos" className="px-3 py-2">
             <TabIconLabel icon={Users} label="Contactos" />
