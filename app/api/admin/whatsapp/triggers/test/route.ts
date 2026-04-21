@@ -4,6 +4,7 @@ import { requireAdminApi } from "@/lib/require-admin-api";
 import {
   dispararTriggerCarritoAbandonado,
   dispararTriggerPedido,
+  dispararTriggerWiserReviewWebhook,
   esTriggerPedido,
   TRIGGER_KEYS_TODOS,
   type TriggerKey,
@@ -32,6 +33,18 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Para cart_abandoned enviá payload (objeto JSON)." }, { status: 400 });
       }
       const resultado = await dispararTriggerCarritoAbandonado({ payload: payload as Record<string, unknown> });
+      return NextResponse.json(resultado);
+    }
+
+    if (triggerKey === "wiser_review_request") {
+      const payload = body.payload;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return NextResponse.json(
+          { error: "Para wiser_review_request enviá payload (objeto JSON, ej. phone + review_url)." },
+          { status: 400 },
+        );
+      }
+      const resultado = await dispararTriggerWiserReviewWebhook({ payload: payload as Record<string, unknown> });
       return NextResponse.json(resultado);
     }
 

@@ -98,6 +98,13 @@ export const CAMPOS_CARRITO_ABANDONADO = [
   { key: "number", label: "Referencia / ID carrito" },
 ] as const;
 
+/** Campos para mapear variables del template cuando el disparo es el webhook de reseñas (Wiser / similar). */
+export const CAMPOS_REVIEW_WEBHOOK = [
+  ...CAMPOS_PEDIDO_DISPONIBLES,
+  { key: "review_url", label: "Link de reseña (payload webhook)" },
+  { key: "product_name", label: "Nombre producto (payload webhook)" },
+] as const;
+
 function obtenerValorAnidado(obj: unknown, path: string): string {
   const partes = path.split(".");
   let actual: unknown = obj;
@@ -306,6 +313,206 @@ export function normalizarPayloadCarritoAbandonado(raw: Record<string, unknown>)
     link_seguimiento: urlRecuperacion,
     cart_url: urlRecuperacion,
   };
+}
+
+/**
+ * JSON típico de apps de reseñas (Wiser, etc.): teléfono suelto o en billing, link, order id opcional.
+ */
+export function normalizarPayloadWiserReview(raw: Record<string, unknown>): Record<string, unknown> {
+  const nestedBill =
+    raw.billing && typeof raw.billing === "object" ? (raw.billing as Record<string, unknown>) : {};
+  const nestedShip =
+    raw.shipping && typeof raw.shipping === "object" ? (raw.shipping as Record<string, unknown>) : {};
+
+  const phone =
+    strPrimero(raw, [
+      "phone",
+      "Phone",
+      "billing_phone",
+      "customer_phone",
+      "mobile",
+      "telephone",
+      "user_phone",
+      "wc_billing_phone",
+    ]) ||
+    strPrimero(nestedBill, ["phone"]) ||
+    "";
+
+  const firstName =
+    strPrimero(raw, ["first_name", "firstname", "billing_first_name", "customer_name", "CustomerName"]) ||
+    strPrimero(nestedBill, ["first_name"]);
+
+  const lastName =
+    strPrimero(raw, ["last_name", "lastname", "billing_last_name"]) || strPrimero(nestedBill, ["last_name"]);
+
+  const orderIdStr = strPrimero(raw, ["order_id", "orderId", "wc_order_id", "order_number", "id"]);
+  const orderIdNum = orderIdStr ? Number(orderIdStr) : 0;
+  const numberStr = strPrimero(raw, ["order_number", "number"]) || (orderIdNum > 0 ? String(orderIdNum) : "");
+
+  const reviewUrl = strPrimero(raw, [
+    "review_url",
+    "review_link",
+    "reviewLink",
+    "feedback_url",
+    "link",
+    "url",
+    "whatsapp_message",
+    "message_link",
+  ]);
+
+  const productName = strPrimero(raw, ["product_name", "product", "item_name", "product_title", "ProductName"]);
+
+  const total = strPrimero(raw, ["total", "order_total", "amount"]);
+  const currency = strPrimero(raw, ["currency"]) || "UYU";
+
+  return {
+    id: Number.isFinite(orderIdNum) && orderIdNum > 0 ? orderIdNum : 0,
+    number: numberStr,
+    status: strPrimero(raw, ["status"]) || "review_request",
+    total,
+    currency,
+    billing: {
+      first_name: firstName,
+      last_name: lastName,
+      phone: phone || strPrimero(nestedBill, ["phone"]),
+      city: strPrimero(nestedBill, ["city"]) || strPrimero(raw, ["city"]),
+    },
+    shipping: {
+      city: strPrimero(nestedShip, ["city"]),
+      address_1: strPrimero(nestedShip, ["address_1"]),
+      phone: strPrimero(nestedShip, ["phone"]),
+    },
+    review_url: reviewUrl,
+    product_name: productName,
+  };
+}
+
+function mezclarWooConNormReview(woo: Record<string, unknown>, norm: Record<string, unknown>): Record<string, unknown> {
+  const merged = { ...woo } as Record<string, unknown>;
+  const wb =
+    typeof woo.billing === "object" && woo.billing !== null
+      ? { ...(woo.billing as Record<string, unknown>) }
+      : ({} as Record<string, unknown>);
+  const nb = norm.billing as Record<string, unknown> | undefined;
+  if (nb?.phone && String(nb.phone).trim()) wb.phone = nb.phone;
+  if (nb?.first_name && String(nb.first_name).trim()) wb.first_name = nb.first_name;
+  if (nb?.last_name && String(nb.last_name).trim()) wb.last_name = nb.last_name;
+  merged.billing = wb;
+  const ru = norm.review_url;
+  if (typeof ru === "string" && ru.trim()) merged.review_url = ru.trim();
+  const pn = norm.product_name;
+  if (typeof pn === "string" && pn.trim()) merged.product_name = pn.trim();
+  return merged;
+}
+
+async function ordenParaTriggerWiserReview(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const norm = normalizarPayloadWiserReview(payload);
+  const oid = typeof norm.id === "number" ? norm.id : Number(norm.id) || 0;
+  if (oid > 0) {
+    try {
+      const woo = await fetchWooOrderRawById(oid);
+      return mezclarWooConNormReview(woo, norm);
+    } catch {
+      return norm;
+    }
+  }
+  return norm;
+}
+
+export async function dispararTriggerWiserReviewWebhook({
+  payload,
+}: {
+  payload: Record<string, unknown>;
+}): Promise<ResultadoDisparoTrigger> {
+  const triggerKey: TriggerKeyPedido = "wiser_review_request";
+  const supabase = getSupabaseAdmin();
+
+  const { data: trigger, error: errTrigger } = await supabase
+    .from("whatsapp_triggers")
+    .select("trigger_key, enabled, template_name, template_language, variable_mapping, template_header_media_url")
+    .eq("trigger_key", triggerKey)
+    .maybeSingle<FilaTrigger>();
+
+  if (errTrigger) return { ok: false, motivo: `Error leyendo trigger: ${errTrigger.message}` };
+  if (!trigger || !trigger.enabled) return { ok: false, motivo: "Trigger deshabilitado." };
+  if (!trigger.template_name) return { ok: false, motivo: "Trigger sin template asignado." };
+
+  const orden = await ordenParaTriggerWiserReview(payload);
+  const telefonoRaw =
+    resolverValorCampo(orden, "billing.phone") || resolverValorCampo(orden, "shipping.phone") || "";
+  const telefono = normalizarTelefonoWaUruguay(telefonoRaw);
+  if (!telefono || !esTelefonoUyValido(telefono)) {
+    return { ok: false, motivo: "Teléfono inválido para Uruguay (revisá el JSON del webhook o order_id + billing.phone en Woo)." };
+  }
+
+  const { data: contacto } = await supabase
+    .from("whatsapp_contacts")
+    .select("id, opted_out")
+    .eq("telefono", telefono)
+    .maybeSingle<{ id: string; opted_out: boolean }>();
+  if (contacto?.opted_out) {
+    return { ok: false, motivo: "Contacto dado de baja (opt-out)." };
+  }
+
+  const mapping = trigger.variable_mapping ?? {};
+  const variables: string[] = [];
+  const numeroVars = Object.keys(mapping)
+    .map((k) => Number(k))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const totalVars = numeroVars.length > 0 ? Math.max(...numeroVars) : 0;
+  for (let i = 1; i <= totalVars; i++) {
+    const campo = mapping[String(i)] ?? "";
+    variables.push(campo ? resolverValorCampo(orden, campo) : "");
+  }
+
+  const configWa = await leerConfigWhatsapp();
+  const templates = await listApprovedTemplates(configWa);
+  const tpl = templates.find(
+    (t) => t.name === trigger.template_name && t.language === trigger.template_language,
+  );
+  if (!tpl) {
+    return { ok: false, motivo: "Template no encontrado en Meta." };
+  }
+  const media = resolverMediaHeaderEnvio(tpl, trigger.template_header_media_url);
+  if (plantillaRequiereCabeceraMultimedia(tpl) && !media) {
+    return {
+      ok: false,
+      motivo:
+        "El template tiene cabecera multimedia: configurá «URL cabecera» en el trigger (HTTPS público).",
+    };
+  }
+  const componentes = construirComponentesTemplateEnvio(tpl, variables, media);
+
+  try {
+    const resultado = await sendTemplateMessage(
+      telefono,
+      trigger.template_name,
+      trigger.template_language,
+      componentes.length > 0 ? componentes : null,
+      configWa,
+    );
+    const waId = resultado.messages?.[0]?.id ?? null;
+    if (waId) {
+      await supabase.from("whatsapp_messages").upsert(
+        {
+          wa_message_id: waId,
+          direction: "out",
+          from_phone: configWa.valores.phone_number_id,
+          to_phone: telefono,
+          body: `[trigger ${triggerKey}] ${trigger.template_name}`,
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          payload: { triggerKey, wiserPayload: payload, variables },
+        },
+        { onConflict: "wa_message_id" },
+      );
+    }
+    return { ok: true, waMessageId: waId, telefono };
+  } catch (error) {
+    const mensaje =
+      error instanceof WhatsappCloudApiError ? error.message : error instanceof Error ? error.message : String(error);
+    return { ok: false, motivo: mensaje };
+  }
 }
 
 export async function dispararTriggerCarritoAbandonado({
