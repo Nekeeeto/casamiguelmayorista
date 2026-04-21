@@ -51,6 +51,11 @@ export type FilaTriggerPedidoWoo = {
   woo_status_slugs: string[] | null;
 };
 
+/** Slug de estado de pedido Woo (REST / webhook): minúsculas, sin prefijo `wc-`. */
+export function normalizarSlugEstadoWebhook(slug: string): string {
+  return slug.trim().toLowerCase().replace(/^wc-/, "");
+}
+
 type FilaTrigger = {
   trigger_key: TriggerKey;
   enabled: boolean;
@@ -405,8 +410,8 @@ export function triggerDesdeEstadoWoo(
   nuevoEstado: string | undefined,
   estadoAnterior: string | undefined,
 ): TriggerKeyPedido | null {
-  const nuevo = (nuevoEstado ?? "").toLowerCase();
-  const anterior = (estadoAnterior ?? "").toLowerCase();
+  const nuevo = normalizarSlugEstadoWebhook(nuevoEstado ?? "");
+  const anterior = normalizarSlugEstadoWebhook(estadoAnterior ?? "");
   if (!nuevo || nuevo === anterior) return null;
 
   if (nuevo === "processing" && anterior !== "processing") return "order_confirmed";
@@ -419,10 +424,6 @@ export function triggerDesdeEstadoWoo(
   if (nuevo.includes("wiser")) return "wiser_review_request";
   if (/(shipped|enviado|envio)/.test(nuevo)) return "order_shipped";
   return null;
-}
-
-function normalizarSlugEstadoWebhook(slug: string): string {
-  return slug.trim().toLowerCase().replace(/^wc-/, "");
 }
 
 /**

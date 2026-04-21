@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import {
   TRIGGER_KEYS_PEDIDO,
   dispararTriggerPedido,
+  normalizarSlugEstadoWebhook,
   resolverTriggerKeyParaEstadoWoo,
   type FilaTriggerPedidoWoo,
 } from "@/lib/whatsapp-woo-triggers";
@@ -23,9 +24,17 @@ function verifyWooSignature(rawBody: string, signature: string, secret: string) 
 type OrderPayload = {
   id?: number;
   status?: string;
+  order?: { status?: string };
   date_modified?: string;
   meta_data?: { key?: string; value?: unknown }[];
 };
+
+function extraerEstadoPedidoDesdePayload(payload: OrderPayload): string | undefined {
+  if (typeof payload.status === "string" && payload.status.trim()) return payload.status;
+  const nested = payload.order?.status;
+  if (typeof nested === "string" && nested.trim()) return nested;
+  return undefined;
+}
 
 export async function POST(req: Request) {
   const secret = process.env.WOO_WEBHOOK_SECRET;
@@ -47,7 +56,7 @@ export async function POST(req: Request) {
   }
 
   const orderId = Number(payload.id);
-  const nuevoEstado = payload.status;
+  const nuevoEstado = extraerEstadoPedidoDesdePayload(payload);
   if (!orderId || !nuevoEstado) return NextResponse.json({ ok: true });
 
   after(async () => {
@@ -64,24 +73,36 @@ export async function POST(req: Request) {
         .from("whatsapp_triggers")
         .select("trigger_key, woo_status_slugs")
         .in("trigger_key", [...TRIGGER_KEYS_PEDIDO]);
+      let filas: FilaTriggerPedidoWoo[];
       if (errFilas) {
         console.error("[woo pedidos webhook] triggers read:", errFilas.message);
+        filas = TRIGGER_KEYS_PEDIDO.map((trigger_key) => ({
+          trigger_key,
+          woo_status_slugs: [],
+        }));
       } else {
-        const filas: FilaTriggerPedidoWoo[] = (filasTriggers ?? []).map((row) => ({
+        filas = (filasTriggers ?? []).map((row) => ({
           trigger_key: row.trigger_key as FilaTriggerPedidoWoo["trigger_key"],
           woo_status_slugs: Array.isArray(row.woo_status_slugs) ? row.woo_status_slugs : [],
         }));
-        const trigger = resolverTriggerKeyParaEstadoWoo(nuevoEstado, estadoAnterior, filas);
-        if (trigger) {
-          await dispararTriggerPedido({ orderId, triggerKey: trigger }).catch((err) => {
-            console.error("[woo pedidos webhook] trigger error:", err);
-          });
-        }
+      }
+      const trigger = resolverTriggerKeyParaEstadoWoo(nuevoEstado, estadoAnterior, filas);
+      if (trigger) {
+        await dispararTriggerPedido({ orderId, triggerKey: trigger }).catch((err) => {
+          console.error("[woo pedidos webhook] trigger error:", err);
+        });
+      } else {
+        console.info("[woo pedidos webhook] sin trigger", {
+          orderId,
+          nuevoEstado,
+          estadoAnterior: previo?.status ?? null,
+        });
       }
 
+      const statusCanonico = normalizarSlugEstadoWebhook(nuevoEstado);
       await supabase
         .from("whatsapp_woo_order_status")
-        .upsert({ order_id: orderId, status: nuevoEstado }, { onConflict: "order_id" });
+        .upsert({ order_id: orderId, status: statusCanonico }, { onConflict: "order_id" });
     } catch (error) {
       console.error("[woo pedidos webhook] error async:", error);
     }
