@@ -4,6 +4,8 @@ import { requireAdminApi } from "@/lib/require-admin-api";
 import {
   dispararTriggerCarritoAbandonado,
   dispararTriggerPedido,
+  esTriggerPedido,
+  TRIGGER_KEYS_TODOS,
   type TriggerKey,
 } from "@/lib/whatsapp-woo-triggers";
 
@@ -19,7 +21,9 @@ export async function POST(req: Request) {
   }
 
   const triggerKey = body.triggerKey as TriggerKey | undefined;
-  if (!triggerKey) return NextResponse.json({ error: "Falta triggerKey." }, { status: 400 });
+  if (!triggerKey || !TRIGGER_KEYS_TODOS.includes(triggerKey)) {
+    return NextResponse.json({ error: "Falta triggerKey o es inválido." }, { status: 400 });
+  }
 
   try {
     if (triggerKey === "cart_abandoned") {
@@ -33,6 +37,10 @@ export async function POST(req: Request) {
 
     if (!body.orderId || typeof body.orderId !== "number") {
       return NextResponse.json({ error: "Falta orderId." }, { status: 400 });
+    }
+
+    if (!esTriggerPedido(triggerKey)) {
+      return NextResponse.json({ error: "Trigger no soportado para prueba con orderId." }, { status: 400 });
     }
 
     const resultado = await dispararTriggerPedido({ orderId: body.orderId, triggerKey });

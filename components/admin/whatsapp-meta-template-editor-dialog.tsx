@@ -214,9 +214,11 @@ export function WhatsappMetaTemplateEditorDialog({
     <Dialog open={abierto} onOpenChange={onAbiertoChange}>
       <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nueva plantilla en Meta</DialogTitle>
+          <DialogTitle>{duplicarDe ? "Nueva versión en Meta" : "Nueva plantilla en Meta"}</DialogTitle>
           <DialogDescription>
-            Se crea vía Cloud API; Meta revisa antes de aprobar. Nombre único, sin mayúsculas ni espacios.
+            {duplicarDe
+              ? "Contenido copiado de la plantilla anterior: cambiá texto o nombre y enviá; Meta no permite editar la plantilla aprobada original in-place."
+              : "Se crea vía Cloud API; Meta revisa antes de aprobar. Nombre único, sin mayúsculas ni espacios."}
           </DialogDescription>
         </DialogHeader>
 

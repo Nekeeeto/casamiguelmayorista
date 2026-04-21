@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 
 import { requireAdminApi } from "@/lib/require-admin-api";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import type { TriggerKey } from "@/lib/whatsapp-woo-triggers";
+import { TRIGGER_KEYS_TODOS, type TriggerKey } from "@/lib/whatsapp-woo-triggers";
 
-const KEYS: TriggerKey[] = ["order_confirmed", "order_shipped", "order_delivered", "cart_abandoned"];
+const KEYS = TRIGGER_KEYS_TODOS;
 
 export async function GET() {
   const auth = await requireAdminApi();

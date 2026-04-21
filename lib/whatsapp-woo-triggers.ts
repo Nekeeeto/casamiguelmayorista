@@ -9,7 +9,27 @@ import {
   resolverMediaHeaderEnvio,
 } from "@/lib/whatsapp-templates";
 
-export type TriggerKey = "order_confirmed" | "order_shipped" | "order_delivered" | "cart_abandoned";
+export const TRIGGER_KEYS_PEDIDO = [
+  "order_confirmed",
+  "order_shipped",
+  "order_delivered",
+  "order_pickup_ready",
+  "order_failed",
+  "order_cancelled",
+  "order_on_hold",
+  "wiser_review_request",
+  "dac_shipping_receipt",
+] as const;
+
+export type TriggerKeyPedido = (typeof TRIGGER_KEYS_PEDIDO)[number];
+
+export type TriggerKey = TriggerKeyPedido | "cart_abandoned";
+
+export const TRIGGER_KEYS_TODOS: TriggerKey[] = [...TRIGGER_KEYS_PEDIDO, "cart_abandoned"];
+
+export function esTriggerPedido(k: TriggerKey): k is TriggerKeyPedido {
+  return k !== "cart_abandoned";
+}
 
 export type VariableMapping = Record<string, string>;
 
@@ -97,7 +117,7 @@ export async function dispararTriggerPedido({
   triggerKey,
 }: {
   orderId: number;
-  triggerKey: TriggerKey;
+  triggerKey: TriggerKeyPedido;
 }): Promise<ResultadoDisparoTrigger> {
   const supabase = getSupabaseAdmin();
 
@@ -363,11 +383,22 @@ export async function dispararTriggerCarritoAbandonado({
 /**
  * Mapea una transición de estado Woo a un trigger, si corresponde.
  */
-export function triggerDesdeEstadoWoo(nuevoEstado: string | undefined, estadoAnterior: string | undefined): TriggerKey | null {
+export function triggerDesdeEstadoWoo(
+  nuevoEstado: string | undefined,
+  estadoAnterior: string | undefined,
+): TriggerKeyPedido | null {
   const nuevo = (nuevoEstado ?? "").toLowerCase();
   const anterior = (estadoAnterior ?? "").toLowerCase();
+  if (!nuevo || nuevo === anterior) return null;
+
   if (nuevo === "processing" && anterior !== "processing") return "order_confirmed";
-  if (nuevo === "completed" && anterior !== "completed") return "order_delivered";
-  if (/(shipped|enviado|envio|para-retirar)/.test(nuevo) && nuevo !== anterior) return "order_shipped";
+  if (nuevo === "on-hold") return "order_on_hold";
+  if (nuevo === "failed") return "order_failed";
+  if (nuevo === "cancelled" || nuevo === "canceled") return "order_cancelled";
+  if (nuevo === "completed") return "order_delivered";
+  if (nuevo.includes("para-retirar")) return "order_pickup_ready";
+  if (nuevo.includes("enviado-dac")) return "dac_shipping_receipt";
+  if (nuevo.includes("wiser")) return "wiser_review_request";
+  if (/(shipped|enviado|envio)/.test(nuevo)) return "order_shipped";
   return null;
 }

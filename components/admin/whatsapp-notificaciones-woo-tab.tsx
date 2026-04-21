@@ -2,7 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Beaker, Copy, Loader2, RefreshCw, ShoppingCart } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Ban,
+  Beaker,
+  Clock,
+  Copy,
+  FileCheck,
+  Loader2,
+  PackageOpen,
+  RefreshCw,
+  ShoppingCart,
+  Star,
+  Truck,
+  XCircle,
+  BadgeCheck,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,10 +33,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { CAMPOS_CARRITO_ABANDONADO } from "@/lib/whatsapp-woo-triggers";
-import type { TriggerKey } from "@/lib/whatsapp-woo-triggers";
-
-type TriggerKeyPedido = "order_confirmed" | "order_shipped" | "order_delivered";
+import {
+  CAMPOS_CARRITO_ABANDONADO,
+  TRIGGER_KEYS_PEDIDO,
+  type TriggerKey,
+  type TriggerKeyPedido,
+} from "@/lib/whatsapp-woo-triggers";
 
 type Trigger = {
   trigger_key: TriggerKey;
@@ -44,22 +61,77 @@ function plantillaUsaCabeceraMultimedia(t: TemplateLista | undefined): boolean {
   return f === "IMAGE" || f === "VIDEO" || f === "DOCUMENT";
 }
 
-const KEYS_PEDIDO: TriggerKeyPedido[] = ["order_confirmed", "order_shipped", "order_delivered"];
-
-const TITULOS: Record<TriggerKeyPedido, { titulo: string; descripcion: string }> = {
-  order_confirmed: {
-    titulo: "Pedido confirmado",
-    descripcion: "Cuando el pedido Woo entra en estado processing.",
-  },
-  order_shipped: {
-    titulo: "Pedido enviado",
-    descripcion: "Cuando el pedido pasa a un estado de envío (shipped, enviado, para-retirar).",
-  },
-  order_delivered: {
-    titulo: "Pedido entregado",
+const GRILLA_NOTIFICACIONES: {
+  key: TriggerKey;
+  titulo: string;
+  descripcion: string;
+  icon: LucideIcon;
+}[] = [
+  {
+    key: "order_delivered",
+    titulo: "Pedido completado",
     descripcion: "Cuando el pedido pasa a completed.",
+    icon: BadgeCheck,
   },
-};
+  {
+    key: "order_shipped",
+    titulo: "Pedido enviado",
+    descripcion: "Estados shipped / enviado / envío (excluye slug enviado-dac y para-retirar).",
+    icon: Truck,
+  },
+  {
+    key: "order_pickup_ready",
+    titulo: "Pedido para retirar",
+    descripcion: "Slug Woo que contenga para-retirar (retiro en local).",
+    icon: PackageOpen,
+  },
+  {
+    key: "order_failed",
+    titulo: "Pedido fallido",
+    descripcion: "Cuando el pedido pasa a failed.",
+    icon: XCircle,
+  },
+  {
+    key: "order_cancelled",
+    titulo: "Pedido cancelado",
+    descripcion: "Cuando el pedido pasa a cancelled.",
+    icon: Ban,
+  },
+  {
+    key: "order_on_hold",
+    titulo: "Pedido en espera",
+    descripcion: "Cuando el pedido pasa a on-hold.",
+    icon: Clock,
+  },
+  {
+    key: "cart_abandoned",
+    titulo: "Carrito abandonado",
+    descripcion: "Webhook FunnelKit / JSON contra la ruta dedicada (modal con URL y mapeo).",
+    icon: ShoppingCart,
+  },
+  {
+    key: "wiser_review_request",
+    titulo: "Solicitar reseñas (Wiser Review)",
+    descripcion: "Slug que contenga wiser (ej. estado personalizado) o probá con orderId.",
+    icon: Star,
+  },
+  {
+    key: "dac_shipping_receipt",
+    titulo: "Comprobante de envío DAC",
+    descripcion: "Slug enviado-dac (u otro que contenga enviado-dac).",
+    icon: FileCheck,
+  },
+];
+
+function crearTestOrderIdsVacios(): Record<TriggerKeyPedido, string> {
+  return TRIGGER_KEYS_PEDIDO.reduce(
+    (acc, k) => {
+      acc[k] = "";
+      return acc;
+    },
+    {} as Record<TriggerKeyPedido, string>,
+  );
+}
 
 const CAMPOS_PEDIDO = [
   { key: "id", label: "ID del pedido" },
@@ -85,11 +157,7 @@ export function WhatsappNotificacionesWooTab() {
   const [cargando, setCargando] = useState(true);
   const [guardandoKey, setGuardandoKey] = useState<TriggerKey | null>(null);
   const [modalCarritoAbierto, setModalCarritoAbierto] = useState(false);
-  const [testOrderIds, setTestOrderIds] = useState<Record<TriggerKeyPedido, string>>({
-    order_confirmed: "",
-    order_shipped: "",
-    order_delivered: "",
-  });
+  const [testOrderIds, setTestOrderIds] = useState<Record<TriggerKeyPedido, string>>(() => crearTestOrderIdsVacios());
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -116,10 +184,6 @@ export function WhatsappNotificacionesWooTab() {
     void cargar();
   }, [cargar]);
 
-  const pedidoTriggers = useMemo(
-    () => triggers.filter((x) => KEYS_PEDIDO.includes(x.trigger_key as TriggerKeyPedido)),
-    [triggers],
-  );
   const cartTrigger = useMemo(() => triggers.find((x) => x.trigger_key === "cart_abandoned"), [triggers]);
 
   const actualizarTrigger = useCallback(
@@ -184,57 +248,85 @@ export function WhatsappNotificacionesWooTab() {
         <p className="text-sm text-muted-foreground">
           Configurá notificaciones automáticas desde WooCommerce. Requiere un webhook activo en Woo apuntando a{" "}
           <code className="rounded bg-muted px-1">/api/webhooks/woocommerce-pedidos</code>. El carrito abandonado usa
-          FunnelKit (u otro) contra <code className="rounded bg-muted px-1">{RUTA_WEBHOOK_CARRITO}</code>.
+          FunnelKit (u otro) contra <code className="rounded bg-muted px-1">{RUTA_WEBHOOK_CARRITO}</code>. El trigger{" "}
+          <code className="rounded bg-muted px-1">order_confirmed</code> (processing) sigue en base y webhook; si necesitás
+          plantilla para ese estado, editá la fila en Supabase o pedí que agreguemos tarjeta en esta grilla.
         </p>
         <Button variant="outline" size="sm" onClick={() => void cargar()}>
           <RefreshCw className="size-4" /> Refrescar
         </Button>
       </div>
 
-      {pedidoTriggers.map((t) => {
-        const meta = TITULOS[t.trigger_key as TriggerKeyPedido];
-        const templateSeleccionada = templates.find(
-          (tpl) => tpl.name === t.template_name && tpl.language === t.template_language,
-        );
-        const totalVars = templateSeleccionada?.placeholders.totalVariables ?? 0;
-        return (
-          <TriggerCardPedido
-            key={t.trigger_key}
-            trigger={t as Trigger & { trigger_key: TriggerKeyPedido }}
-            meta={meta}
-            templates={templates}
-            templateSeleccionada={templateSeleccionada}
-            totalVars={totalVars}
-            guardando={guardandoKey === t.trigger_key}
-            onActualizar={(patch) => actualizarTrigger(t.trigger_key, patch)}
-            testOrderId={testOrderIds[t.trigger_key as TriggerKeyPedido]}
-            onTestOrderIdChange={(value) =>
-              setTestOrderIds((prev) => ({ ...prev, [t.trigger_key as TriggerKeyPedido]: value }))
-            }
-            onProbar={() => void probarPedido(t.trigger_key as TriggerKeyPedido)}
-          />
-        );
-      })}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {GRILLA_NOTIFICACIONES.map((cfg) => {
+          if (cfg.key === "cart_abandoned") {
+            return (
+              <Card key={cfg.key} className="flex flex-col border-dashed">
+                <CardHeader className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-primary">
+                      <cfg.icon className="size-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <CardTitle className="text-base leading-snug">{cfg.titulo}</CardTitle>
+                      <CardDescription className="mt-1">{cfg.descripcion}</CardDescription>
+                    </div>
+                  </div>
+                  <Button type="button" variant="secondary" className="shrink-0" onClick={() => setModalCarritoAbierto(true)}>
+                    Abrir configuración
+                  </Button>
+                </CardHeader>
+              </Card>
+            );
+          }
 
-      <Card className="border-dashed">
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-              <ShoppingCart className="size-5 text-muted-foreground" aria-hidden />
-            </span>
-            <div>
-              <CardTitle className="text-base">Carrito abandonado</CardTitle>
-              <CardDescription>
-                Webhook dedicado (FunnelKit Automations u Outgoing Webhook): JSON con teléfono y datos del carrito;
-                elegí template Meta y mapeo de variables en el modal.
-              </CardDescription>
-            </div>
-          </div>
-          <Button type="button" variant="secondary" onClick={() => setModalCarritoAbierto(true)}>
-            Abrir configuración
-          </Button>
-        </CardHeader>
-      </Card>
+          const t = triggers.find((x) => x.trigger_key === cfg.key);
+          if (!t) {
+            return (
+              <Card key={cfg.key} className="border-dashed border-amber-500/35">
+                <CardHeader>
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-amber-600 dark:text-amber-400">
+                      <cfg.icon className="size-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0 space-y-1">
+                      <CardTitle className="text-base leading-snug">{cfg.titulo}</CardTitle>
+                      <CardDescription>{cfg.descripcion}</CardDescription>
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Falta fila <code className="rounded bg-muted px-1">{cfg.key}</code>. En Supabase ejecutá{" "}
+                        <code className="rounded bg-muted px-1">schema_phase10_whatsapp_triggers_expand.sql</code> (PASO_1
+                        y luego PASO_2).
+                      </p>
+                    </div>
+                  </div>
+                </CardHeader>
+              </Card>
+            );
+          }
+
+          const templateSeleccionada = templates.find(
+            (tpl) => tpl.name === t.template_name && tpl.language === t.template_language,
+          );
+          const totalVars = templateSeleccionada?.placeholders.totalVariables ?? 0;
+          const keyPedido = cfg.key as TriggerKeyPedido;
+          return (
+            <TriggerCardPedido
+              key={cfg.key}
+              icon={cfg.icon}
+              trigger={t as Trigger & { trigger_key: TriggerKeyPedido }}
+              meta={{ titulo: cfg.titulo, descripcion: cfg.descripcion }}
+              templates={templates}
+              templateSeleccionada={templateSeleccionada}
+              totalVars={totalVars}
+              guardando={guardandoKey === t.trigger_key}
+              onActualizar={(patch) => actualizarTrigger(t.trigger_key, patch)}
+              testOrderId={testOrderIds[keyPedido]}
+              onTestOrderIdChange={(value) => setTestOrderIds((prev) => ({ ...prev, [keyPedido]: value }))}
+              onProbar={() => void probarPedido(keyPedido)}
+            />
+          );
+        })}
+      </div>
 
       <CarritoAbandonadoDialog
         open={modalCarritoAbierto}
@@ -249,6 +341,7 @@ export function WhatsappNotificacionesWooTab() {
 }
 
 type TriggerCardPedidoProps = {
+  icon: LucideIcon;
   trigger: Trigger & { trigger_key: TriggerKeyPedido };
   meta: { titulo: string; descripcion: string };
   templates: TemplateLista[];
@@ -262,6 +355,7 @@ type TriggerCardPedidoProps = {
 };
 
 function TriggerCardPedido({
+  icon: Icon,
   trigger,
   meta,
   templates,
@@ -294,13 +388,18 @@ function TriggerCardPedido({
   );
 
   return (
-    <Card>
-      <CardHeader className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <CardTitle>{meta.titulo}</CardTitle>
-          <CardDescription>{meta.descripcion}</CardDescription>
+    <Card className="flex h-full flex-col">
+      <CardHeader className="flex flex-1 flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-primary">
+            <Icon className="size-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <CardTitle className="text-base leading-snug">{meta.titulo}</CardTitle>
+            <CardDescription className="mt-1">{meta.descripcion}</CardDescription>
+          </div>
         </div>
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex shrink-0 items-center gap-2 text-sm sm:flex-col sm:items-end">
           <span>{trigger.enabled ? "Activo" : "Desactivado"}</span>
           <Switch
             checked={trigger.enabled}
@@ -309,7 +408,7 @@ function TriggerCardPedido({
           />
         </label>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="mt-auto space-y-3 pt-0">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Template</Label>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Copy, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, CopyPlus, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
 import {
   WhatsappMetaTemplateEditorDialog,
@@ -190,7 +190,9 @@ export function WhatsappTemplatesTab() {
           <div>
             <CardTitle>Templates de Meta</CardTitle>
             <CardDescription>
-              Listado desde tu WABA; podés crear nuevas (quedan en revisión hasta que Meta las apruebe).
+              Listado desde tu WABA. Meta no permite cambiar el texto de una plantilla ya aprobada sobre el mismo
+              nombre: usá «Nueva versión» para clonar, editar y mandar otra plantilla a revisión (nombre distinto). Las
+              nuevas quedan pendientes hasta aprobación.
             </CardDescription>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
@@ -251,7 +253,7 @@ export function WhatsappTemplatesTab() {
                     <TableHead className="min-w-[140px]">Plantilla</TableHead>
                     <TableHead className="min-w-[200px]">Vista previa</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
+                    <TableHead className="min-w-[120px] text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -283,10 +285,11 @@ export function WhatsappTemplatesTab() {
                               variant="ghost"
                               size="icon"
                               className="size-8"
-                              title="Duplicar como nueva"
+                              title="Nueva versión: abre editor con el mismo contenido; guardá con otro nombre y Meta la revisa de nuevo."
+                              aria-label="Nueva versión para editar y reenviar a aprobación"
                               onClick={() => abrirDuplicar(t)}
                             >
-                              <Copy className="size-4" />
+                              <CopyPlus className="size-4" />
                             </Button>
                             <Button
                               type="button"
