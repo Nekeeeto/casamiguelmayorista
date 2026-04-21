@@ -1094,6 +1094,7 @@ function WiserReviewWebhookDialog({
   const [testPhone, setTestPhone] = useState("");
   const [testNombre, setTestNombre] = useState("");
   const [testReviewUrl, setTestReviewUrl] = useState("");
+  const [testProductName, setTestProductName] = useState("");
   const [testOrderId, setTestOrderId] = useState("");
 
   useEffect(() => {
@@ -1136,9 +1137,10 @@ function WiserReviewWebhookDialog({
       toast.error("Ingresá un teléfono de prueba (con código país).");
       return;
     }
-    const payload: Record<string, string | number> = { phone };
-    if (testNombre.trim()) payload.first_name = testNombre.trim();
-    if (testReviewUrl.trim()) payload.review_url = testReviewUrl.trim();
+    const payload: Record<string, string | number> = { customer_number: phone };
+    if (testNombre.trim()) payload.customer_name = testNombre.trim();
+    if (testReviewUrl.trim()) payload.product_review_url = testReviewUrl.trim();
+    if (testProductName.trim()) payload.product_name = testProductName.trim();
     const oid = Number(testOrderId.trim());
     if (Number.isFinite(oid) && oid > 0) payload.order_id = oid;
     try {
@@ -1171,9 +1173,17 @@ function WiserReviewWebhookDialog({
             <div>
               <DialogTitle>Reseñas · webhook Wiser</DialogTitle>
               <DialogDescription>
-                Pegá la URL abajo en Wiser (Webhook Alert). POST JSON; secreto{" "}
-                <code className="rounded bg-muted px-1">WISER_REVIEW_WEBHOOK_SECRET</code> en Vercel — mismo valor en
-                header <code className="rounded bg-muted px-1">X-Wiser-Secret</code>,{" "}
+                Pegá la URL en WiserReview (Webhook Alert). POST con el JSON de su{" "}
+                <a
+                  className="underline underline-offset-2"
+                  href="https://wiserreview.com/docs/integration/webhook-alert-for-request-trigger-used-for-get-event-alert/"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  documentación
+                </a>
+                . Secreto <code className="rounded bg-muted px-1">WISER_REVIEW_WEBHOOK_SECRET</code> en Vercel — mismo
+                valor en <code className="rounded bg-muted px-1">X-Wiser-Secret</code>,{" "}
                 <code className="rounded bg-muted px-1">X-WiserNotify-Secret</code>,{" "}
                 <code className="rounded bg-muted px-1">X-Webhook-Secret</code>,{" "}
                 <code className="rounded bg-muted px-1">Authorization: Bearer …</code> o{" "}
@@ -1201,16 +1211,26 @@ function WiserReviewWebhookDialog({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Si mandás <code className="rounded bg-muted px-0.5">order_id</code> y existe en Woo, se enriquece el
-                pedido por REST; el teléfono y <code className="rounded bg-muted px-0.5">review_url</code> del JSON
-                pisan datos vacíos del pedido.
+                Con <code className="rounded bg-muted px-0.5">order_id</code> válido en Woo se mezcla el pedido REST;{" "}
+                <code className="rounded bg-muted px-0.5">customer_number</code>,{" "}
+                <code className="rounded bg-muted px-0.5">customer_name</code>,{" "}
+                <code className="rounded bg-muted px-0.5">product_review_url</code> /{" "}
+                <code className="rounded bg-muted px-0.5">brand_product_review_url</code> y{" "}
+                <code className="rounded bg-muted px-0.5">product_name</code> del JSON pisan huecos del pedido.
               </p>
-              <pre className="mt-2 max-h-40 overflow-auto rounded bg-background p-2 text-xs leading-relaxed text-muted-foreground">
+              <pre className="mt-2 max-h-48 overflow-auto rounded bg-background p-2 text-xs leading-relaxed text-muted-foreground">
 {`{
-  "phone": "+59899123456",
-  "first_name": "Nombre",
-  "review_url": "https://tu-tienda.com/review/…",
-  "order_id": 12345
+  "event_type": "on_order_fulfill",
+  "customer_number": "+59899123456",
+  "customer_name": "María García",
+  "customer_email": "maria@ejemplo.com",
+  "product_name": "Galletitas rellenas x 12u",
+  "product_id": "456",
+  "order_id": "12345",
+  "product_review_url": "https://tu-tienda.com/review/…",
+  "brand_product_review_url": "https://tu-tienda.com/reviews",
+  "discount_code": "",
+  "discount_value": ""
 }`}
               </pre>
             </div>
@@ -1270,7 +1290,7 @@ function WiserReviewWebhookDialog({
 
             {totalVars > 0 ? (
               <div className="rounded-md border border-border p-3">
-                <p className="mb-2 text-sm font-medium">Mapeo de variables (payload / pedido Woo)</p>
+                <p className="mb-2 text-sm font-medium">Mapeo de variables (WiserReview + pedido Woo)</p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {Array.from({ length: totalVars }, (_, i) => {
                     const idx = String(i + 1);
@@ -1311,7 +1331,7 @@ function WiserReviewWebhookDialog({
               <p className="mb-2 text-sm font-medium">Probar envío (admin)</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="wa-wiser-test-phone">Teléfono *</Label>
+                  <Label htmlFor="wa-wiser-test-phone">customer_number *</Label>
                   <Input
                     id="wa-wiser-test-phone"
                     value={testPhone}
@@ -1320,15 +1340,25 @@ function WiserReviewWebhookDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="wa-wiser-test-nombre">Nombre (opcional)</Label>
+                  <Label htmlFor="wa-wiser-test-nombre">customer_name (opcional)</Label>
                   <Input
                     id="wa-wiser-test-nombre"
                     value={testNombre}
                     onChange={(e) => setTestNombre(e.target.value)}
+                    placeholder="Nombre o nombre completo"
                   />
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="wa-wiser-test-url">review_url (opcional)</Label>
+                  <Label htmlFor="wa-wiser-test-product">product_name (opcional)</Label>
+                  <Input
+                    id="wa-wiser-test-product"
+                    value={testProductName}
+                    onChange={(e) => setTestProductName(e.target.value)}
+                    placeholder="Texto para {{2}} en el template"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="wa-wiser-test-url">product_review_url (opcional)</Label>
                   <Input
                     id="wa-wiser-test-url"
                     value={testReviewUrl}

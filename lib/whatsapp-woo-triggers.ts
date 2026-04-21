@@ -98,11 +98,22 @@ export const CAMPOS_CARRITO_ABANDONADO = [
   { key: "number", label: "Referencia / ID carrito" },
 ] as const;
 
-/** Campos para mapear variables del template cuando el disparo es el webhook de reseñas (Wiser / similar). */
+/** Campos para mapear variables del template cuando el disparo es el webhook WiserReview (JSON docs). */
 export const CAMPOS_REVIEW_WEBHOOK = [
+  { key: "customer_first_name", label: "Primer nombre (desde customer_name Wiser)" },
+  { key: "customer_name", label: "Nombre completo (Wiser)" },
+  { key: "customer_number", label: "Teléfono (customer_number Wiser)" },
+  { key: "customer_email", label: "Email (Wiser)" },
+  { key: "product_name", label: "Nombre producto (Wiser)" },
+  { key: "product_id", label: "ID producto (Wiser)" },
+  { key: "product_image", label: "Imagen producto URL (Wiser)" },
+  { key: "product_review_url", label: "Link reseña producto (Wiser)" },
+  { key: "brand_product_review_url", label: "Link reseña marca (Wiser)" },
+  { key: "review_url", label: "Link reseña (prioridad: producto → marca)" },
+  { key: "event_type", label: "Tipo de evento (Wiser)" },
+  { key: "discount_code", label: "Código descuento (Wiser)" },
+  { key: "discount_value", label: "Valor descuento (Wiser)" },
   ...CAMPOS_PEDIDO_DISPONIBLES,
-  { key: "review_url", label: "Link de reseña (payload webhook)" },
-  { key: "product_name", label: "Nombre producto (payload webhook)" },
 ] as const;
 
 function obtenerValorAnidado(obj: unknown, path: string): string {
@@ -315,8 +326,19 @@ export function normalizarPayloadCarritoAbandonado(raw: Record<string, unknown>)
   };
 }
 
+function primerTokenNombre(nombreCompleto: string): string {
+  const t = nombreCompleto.trim().split(/\s+/).filter(Boolean);
+  return t[0] ?? "";
+}
+
+function restoNombre(nombreCompleto: string): string {
+  const t = nombreCompleto.trim().split(/\s+/).filter(Boolean);
+  return t.length > 1 ? t.slice(1).join(" ") : "";
+}
+
 /**
- * JSON típico de apps de reseñas (Wiser, etc.): teléfono suelto o en billing, link, order id opcional.
+ * JSON de WiserReview (Webhook Alert) y variantes genéricas.
+ * @see https://wiserreview.com/docs/integration/webhook-alert-for-request-trigger-used-for-get-event-alert/
  */
 export function normalizarPayloadWiserReview(raw: Record<string, unknown>): Record<string, unknown> {
   const nestedBill =
@@ -326,6 +348,8 @@ export function normalizarPayloadWiserReview(raw: Record<string, unknown>): Reco
 
   const phone =
     strPrimero(raw, [
+      "customer_number",
+      "CustomerNumber",
       "phone",
       "Phone",
       "billing_phone",
@@ -338,32 +362,52 @@ export function normalizarPayloadWiserReview(raw: Record<string, unknown>): Reco
     strPrimero(nestedBill, ["phone"]) ||
     "";
 
+  const customerNameWiser = strPrimero(raw, ["customer_name", "CustomerName"]);
+  const firstFromWiserName = customerNameWiser ? primerTokenNombre(customerNameWiser) : "";
+  const lastFromWiserName = customerNameWiser ? restoNombre(customerNameWiser) : "";
+
   const firstName =
-    strPrimero(raw, ["first_name", "firstname", "billing_first_name", "customer_name", "CustomerName"]) ||
+    firstFromWiserName ||
+    strPrimero(raw, ["first_name", "firstname", "billing_first_name"]) ||
     strPrimero(nestedBill, ["first_name"]);
 
   const lastName =
-    strPrimero(raw, ["last_name", "lastname", "billing_last_name"]) || strPrimero(nestedBill, ["last_name"]);
+    lastFromWiserName ||
+    strPrimero(raw, ["last_name", "lastname", "billing_last_name"]) ||
+    strPrimero(nestedBill, ["last_name"]);
 
-  const orderIdStr = strPrimero(raw, ["order_id", "orderId", "wc_order_id", "order_number", "id"]);
+  const orderIdStr = strPrimero(raw, ["order_id", "OrderId", "orderId", "wc_order_id", "order_number", "id"]);
   const orderIdNum = orderIdStr ? Number(orderIdStr) : 0;
   const numberStr = strPrimero(raw, ["order_number", "number"]) || (orderIdNum > 0 ? String(orderIdNum) : "");
 
-  const reviewUrl = strPrimero(raw, [
-    "review_url",
-    "review_link",
-    "reviewLink",
-    "feedback_url",
-    "link",
-    "url",
-    "whatsapp_message",
-    "message_link",
-  ]);
+  const productReviewUrl = strPrimero(raw, ["product_review_url", "ProductReviewUrl"]);
+  const brandReviewUrl = strPrimero(raw, ["brand_product_review_url", "BrandProductReviewUrl"]);
+  const reviewUrl =
+    productReviewUrl ||
+    brandReviewUrl ||
+    strPrimero(raw, [
+      "review_url",
+      "review_link",
+      "reviewLink",
+      "feedback_url",
+      "link",
+      "url",
+      "whatsapp_message",
+      "message_link",
+    ]);
 
-  const productName = strPrimero(raw, ["product_name", "product", "item_name", "product_title", "ProductName"]);
+  const productName = strPrimero(raw, ["product_name", "ProductName", "product", "item_name", "product_title"]);
+  const productId = strPrimero(raw, ["product_id", "ProductId"]);
+  const productImage = strPrimero(raw, ["product_image", "ProductImage"]);
+  const customerEmail = strPrimero(raw, ["customer_email", "CustomerEmail"]);
+  const eventType = strPrimero(raw, ["event_type", "EventType"]);
+  const discountCode = strPrimero(raw, ["discount_code", "DiscountCode"]);
+  const discountValue = strPrimero(raw, ["discount_value", "DiscountValue"]);
 
   const total = strPrimero(raw, ["total", "order_total", "amount"]);
   const currency = strPrimero(raw, ["currency"]) || "UYU";
+
+  const customerFirstName = firstFromWiserName || firstName;
 
   return {
     id: Number.isFinite(orderIdNum) && orderIdNum > 0 ? orderIdNum : 0,
@@ -382,10 +426,37 @@ export function normalizarPayloadWiserReview(raw: Record<string, unknown>): Reco
       address_1: strPrimero(nestedShip, ["address_1"]),
       phone: strPrimero(nestedShip, ["phone"]),
     },
-    review_url: reviewUrl,
+    customer_first_name: customerFirstName,
+    customer_name: customerNameWiser,
+    customer_number: phone,
+    customer_email: customerEmail,
+    event_type: eventType,
+    product_id: productId,
     product_name: productName,
+    product_image: productImage,
+    product_review_url: productReviewUrl,
+    brand_product_review_url: brandReviewUrl,
+    discount_code: discountCode,
+    discount_value: discountValue,
+    review_url: reviewUrl,
   };
 }
+
+const CAMPOS_RAIZ_WISER_EN_MERGE: readonly string[] = [
+  "customer_first_name",
+  "customer_name",
+  "customer_number",
+  "customer_email",
+  "event_type",
+  "product_id",
+  "product_name",
+  "product_image",
+  "product_review_url",
+  "brand_product_review_url",
+  "discount_code",
+  "discount_value",
+  "review_url",
+];
 
 function mezclarWooConNormReview(woo: Record<string, unknown>, norm: Record<string, unknown>): Record<string, unknown> {
   const merged = { ...woo } as Record<string, unknown>;
@@ -398,10 +469,13 @@ function mezclarWooConNormReview(woo: Record<string, unknown>, norm: Record<stri
   if (nb?.first_name && String(nb.first_name).trim()) wb.first_name = nb.first_name;
   if (nb?.last_name && String(nb.last_name).trim()) wb.last_name = nb.last_name;
   merged.billing = wb;
-  const ru = norm.review_url;
-  if (typeof ru === "string" && ru.trim()) merged.review_url = ru.trim();
-  const pn = norm.product_name;
-  if (typeof pn === "string" && pn.trim()) merged.product_name = pn.trim();
+  for (const key of CAMPOS_RAIZ_WISER_EN_MERGE) {
+    const v = norm[key];
+    if (v == null || v === "") continue;
+    if (typeof v === "string" && v.trim()) merged[key] = v.trim();
+    else if (typeof v === "number" && Number.isFinite(v)) merged[key] = String(v);
+    else if (typeof v === "boolean") merged[key] = String(v);
+  }
   return merged;
 }
 

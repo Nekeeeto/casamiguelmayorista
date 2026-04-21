@@ -40,7 +40,10 @@ export async function POST(req: Request) {
       const payload = body.payload;
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         return NextResponse.json(
-          { error: "Para wiser_review_request enviá payload (objeto JSON, ej. phone + review_url)." },
+          {
+            error:
+              "Para wiser_review_request enviá payload (objeto JSON, ej. customer_number + product_review_url según WiserReview).",
+          },
           { status: 400 },
         );
       }
