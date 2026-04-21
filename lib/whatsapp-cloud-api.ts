@@ -162,6 +162,21 @@ export async function listApprovedTemplates(
   return todas;
 }
 
+/** Primera página de templates (sin paginar todo el WABA) — útil para dashboard. */
+export async function listMessageTemplatesPreview(
+  limit: number,
+  configOverride?: WhatsappConfigResuelto,
+): Promise<WhatsappTemplate[]> {
+  const config = configOverride ?? (await leerConfigWhatsapp());
+  const { wabaId, accessToken } = assertConfig(config);
+  const cap = Math.min(Math.max(limit, 1), 200);
+  const resp = await fetchGraph<{ data: WhatsappTemplate[] }>(
+    `/${wabaId}/message_templates?limit=${cap}&fields=name,language,status,category,id`,
+    accessToken,
+  );
+  return resp.data ?? [];
+}
+
 export type PayloadCrearPlantilla = {
   name: string;
   language: string;

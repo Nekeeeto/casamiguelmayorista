@@ -7,6 +7,8 @@ import {
   CheckCheck,
   Clock,
   Loader2,
+  MessageSquareText,
+  Paperclip,
   RefreshCw,
   Send,
   UserPlus,
@@ -15,7 +17,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { WhatsappContactoDialog } from "@/components/admin/whatsapp-contacto-dialog";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
@@ -42,6 +53,7 @@ type ConversacionResumen = {
   nombre: string | null;
   contactId: string | null;
   optedOut: boolean;
+  avatarUrl?: string | null;
   ultimo: {
     body: string;
     direction: "in" | "out";
@@ -50,6 +62,40 @@ type ConversacionResumen = {
   };
   entrantesNoLeidos: number;
 };
+
+function inicialesBandeja(nombre: string | null, telefono: string): string {
+  const n = (nombre ?? "").trim();
+  if (n) {
+    const parts = n.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const a = parts[0]?.[0];
+      const b = parts[1]?.[0];
+      if (a && b) return (a + b).toUpperCase();
+    }
+    return n.slice(0, 2).toUpperCase();
+  }
+  const d = telefono.replace(/\D/g, "");
+  return d.slice(-2).toUpperCase() || "?";
+}
+
+function AvatarBandeja({
+  nombre,
+  telefono,
+  url,
+}: Readonly<{ nombre: string | null; telefono: string; url: string | null | undefined }>) {
+  const ini = inicialesBandeja(nombre, telefono);
+  const u = url?.trim() ?? "";
+  if (u && /^https:\/\//i.test(u)) {
+    return (
+      <img src={u} alt="" className="size-9 shrink-0 rounded-full object-cover ring-1 ring-border" />
+    );
+  }
+  return (
+    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold">
+      {ini}
+    </div>
+  );
+}
 
 function formatearDuracionRestante(ms: number): string {
   if (ms <= 0) return "Cerrada";
@@ -82,6 +128,13 @@ export function WhatsappBandejaTab() {
   const [dialogAltaAbierto, setDialogAltaAbierto] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const hiloRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickLista, setQuickLista] = useState<string[]>([]);
+  const [quickEdit, setQuickEdit] = useState("");
+  const [quickCargando, setQuickCargando] = useState(false);
+  const [quickGuardando, setQuickGuardando] = useState(false);
+  const [subiendoMedia, setSubiendoMedia] = useState(false);
 
   const cargarInbox = useCallback(async () => {
     setCargandoInbox(true);
@@ -179,14 +232,51 @@ export function WhatsappBandejaTab() {
     );
   }, [busqueda, conversaciones]);
 
-  const enviar = async () => {
-    if (!telefonoActivo || !texto.trim()) return;
+  const enviar = async (textoOverride?: string) => {
+    const t = (textoOverride ?? texto).trim();
+    if (!telefonoActivo || !t) return;
     setEnviando(true);
     try {
       const res = await fetch("/api/admin/whatsapp/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: telefonoActivo, text: texto.trim() }),
+        body: JSON.stringify({ phone: telefonoActivo, text: t }),
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? `HTTP ${res.status}`);
+      }
+      if (!textoOverride) setTexto("");
+      await cargarHilo(telefonoActivo);
+      await cargarInbox();
+    } catch (error) {
+      toast.error("No se pudo enviar.", { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const enviarMedia = async (archivo: File) => {
+    if (!telefonoActivo) return;
+    const mime = archivo.type || "application/octet-stream";
+    const kind =
+      mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "document";
+    setSubiendoMedia(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", archivo);
+      const up = await fetch("/api/admin/whatsapp/media/upload", { method: "POST", body: fd });
+      const upJson = (await up.json().catch(() => ({}))) as { error?: string; url?: string };
+      if (!up.ok) throw new Error(upJson.error ?? `Upload HTTP ${up.status}`);
+      if (!upJson.url) throw new Error("Sin URL pública.");
+      const cap = texto.trim() || undefined;
+      const res = await fetch("/api/admin/whatsapp/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: telefonoActivo,
+          media: { kind, link: upJson.url, caption: cap },
+        }),
       });
       if (!res.ok) {
         const payload = (await res.json().catch(() => ({}))) as { error?: string };
@@ -195,10 +285,53 @@ export function WhatsappBandejaTab() {
       setTexto("");
       await cargarHilo(telefonoActivo);
       await cargarInbox();
-    } catch (error) {
-      toast.error("No se pudo enviar.", { description: error instanceof Error ? error.message : undefined });
+      toast.success("Archivo enviado.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al enviar archivo.");
     } finally {
-      setEnviando(false);
+      setSubiendoMedia(false);
+    }
+  };
+
+  const abrirRespuestasRapidas = async () => {
+    setQuickOpen(true);
+    setQuickCargando(true);
+    try {
+      const res = await fetch("/api/admin/whatsapp/quick-replies", { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as { replies?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      const list = Array.isArray(data.replies) ? data.replies : [];
+      setQuickLista(list);
+      setQuickEdit(list.join("\n"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudieron cargar respuestas.");
+      setQuickLista([]);
+      setQuickEdit("");
+    } finally {
+      setQuickCargando(false);
+    }
+  };
+
+  const guardarRespuestasRapidas = async () => {
+    const lines = quickEdit
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    setQuickGuardando(true);
+    try {
+      const res = await fetch("/api/admin/whatsapp/quick-replies", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replies: lines }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; replies?: string[] };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setQuickLista(data.replies ?? lines);
+      toast.success("Lista guardada.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar.");
+    } finally {
+      setQuickGuardando(false);
     }
   };
 
@@ -238,8 +371,11 @@ export function WhatsappBandejaTab() {
                       )}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium">
-                          {c.nombre || formatearTelefonoParaUi(c.telefono)}
+                        <span className="flex min-w-0 items-center gap-2 truncate text-sm font-medium">
+                          <AvatarBandeja nombre={c.nombre} telefono={c.telefono} url={c.avatarUrl} />
+                          <span className="truncate">
+                            {c.nombre || formatearTelefonoParaUi(c.telefono)}
+                          </span>
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {new Date(c.ultimo.received_at).toLocaleDateString("es-UY")}
@@ -273,6 +409,11 @@ export function WhatsappBandejaTab() {
             <CardHeader className="flex-row flex-wrap items-start justify-between gap-2 border-b border-border/60">
               <div>
                 <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                  <AvatarBandeja
+                    nombre={conversacionActiva.nombre}
+                    telefono={conversacionActiva.telefono}
+                    url={conversacionActiva.avatarUrl}
+                  />
                   {conversacionActiva.nombre || formatearTelefonoParaUi(conversacionActiva.telefono)}
                   {conversacionActiva.optedOut ? <Badge variante="destructive">Baja</Badge> : null}
                   {!conversacionActiva.contactId ? <Badge variante="warning">Desconocido</Badge> : null}
@@ -326,6 +467,26 @@ export function WhatsappBandejaTab() {
                         {m.media_type ? (
                           <p className="text-xs uppercase opacity-80">[{m.media_type}]</p>
                         ) : null}
+                        {m.media_url && m.media_type === "image" ? (
+                          <img
+                            src={m.media_url}
+                            alt=""
+                            className="mb-1 max-h-48 max-w-full rounded-md object-contain"
+                          />
+                        ) : null}
+                        {m.media_url && m.media_type === "video" ? (
+                          <video src={m.media_url} controls className="mb-1 max-h-48 max-w-full rounded-md" />
+                        ) : null}
+                        {m.media_url && m.media_type === "document" ? (
+                          <a
+                            href={m.media_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mb-1 block text-xs underline"
+                          >
+                            Abrir documento
+                          </a>
+                        ) : null}
                         <p className="whitespace-pre-wrap">{m.body || (m.media_type ? "(sin texto)" : "")}</p>
                         <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80">
                           <span>
@@ -362,7 +523,34 @@ export function WhatsappBandejaTab() {
                     }
                   }}
                 />
-                <div className="flex items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap gap-1">
+                    <Button type="button" variant="outline" size="sm" onClick={() => void abrirRespuestasRapidas()}>
+                      <MessageSquareText className="size-4" />
+                      Respuestas
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!ventanaAbierta || subiendoMedia}
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      {subiendoMedia ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
+                      Archivo
+                    </Button>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      className="hidden"
+                      accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,application/pdf"
+                      onChange={(event) => {
+                        const f = event.target.files?.[0];
+                        if (f) void enviarMedia(f);
+                        event.target.value = "";
+                      }}
+                    />
+                  </div>
                   <Button
                     onClick={() => void enviar()}
                     disabled={!ventanaAbierta || enviando || !texto.trim()}
@@ -385,13 +573,94 @@ export function WhatsappBandejaTab() {
         <WhatsappContactoDialog
           abierto={dialogAltaAbierto}
           onAbiertoChange={setDialogAltaAbierto}
-          inicial={{ telefono: conversacionActiva.telefono, nombre: conversacionActiva.nombre ?? "", tags: [], notas: "" }}
+          inicial={{
+            telefono: conversacionActiva.telefono,
+            nombre: conversacionActiva.nombre ?? "",
+            tags: [],
+            notas: "",
+            avatar_url: null,
+          }}
           onGuardado={() => {
             setDialogAltaAbierto(false);
             void cargarInbox();
           }}
         />
       ) : null}
+
+      <Dialog open={quickOpen} onOpenChange={setQuickOpen}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Respuestas rápidas</DialogTitle>
+            <DialogDescription>
+              Insertá en el cuadro de texto o enviá directo (ventana 24h). Editá la lista abajo y guardá.
+            </DialogDescription>
+          </DialogHeader>
+          {quickCargando ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Cargando…
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                {quickLista.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Sin entradas. Agregá líneas abajo.</p>
+                ) : (
+                  quickLista.map((line, idx) => (
+                    <div
+                      key={`${idx}-${line.slice(0, 24)}`}
+                      className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 py-1 last:border-0"
+                    >
+                      <p className="max-w-[220px] flex-1 truncate text-sm">{line}</p>
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() =>
+                            setTexto((prev) => {
+                              const sep = prev.trim() ? `${prev.trimEnd()}\n` : "";
+                              return `${sep}${line}`;
+                            })
+                          }
+                        >
+                          Insertar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!ventanaAbierta || enviando}
+                          onClick={() => void enviar(line)}
+                        >
+                          Enviar
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-quick-edit">Lista (una por línea)</Label>
+                <Textarea
+                  id="wa-quick-edit"
+                  rows={6}
+                  value={quickEdit}
+                  onChange={(e) => setQuickEdit(e.target.value)}
+                  placeholder={"Hola, ¿en qué te ayudamos?\nTe pasamos precio enseguida."}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button type="button" variant="outline" onClick={() => setQuickOpen(false)}>
+              Cerrar
+            </Button>
+            <Button type="button" disabled={quickGuardando} onClick={() => void guardarRespuestasRapidas()}>
+              {quickGuardando ? <Loader2 className="size-4 animate-spin" /> : null}
+              Guardar lista
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

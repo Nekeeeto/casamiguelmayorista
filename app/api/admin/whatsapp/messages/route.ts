@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/require-admin-api";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { leerConfigWhatsapp } from "@/lib/whatsapp-config";
-import { sendTextMessage, WhatsappCloudApiError } from "@/lib/whatsapp-cloud-api";
+import {
+  markMessageAsRead,
+  sendMediaMessage,
+  sendTextMessage,
+  WhatsappCloudApiError,
+} from "@/lib/whatsapp-cloud-api";
 import { esTelefonoUyValido, normalizarTelefonoWaUruguay } from "@/lib/telefono-wa-uruguay";
 
 const VENTANA_24H_MS = 24 * 60 * 60 * 1000;
@@ -25,7 +30,33 @@ export async function GET(req: Request) {
     .limit(300);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const ultimoEntrante = (data ?? [])
+  const filas = (data ?? []) as Array<{
+    id: string;
+    direction: string;
+    wa_message_id: string | null;
+    status: string;
+  }>;
+  const config = await leerConfigWhatsapp();
+  for (const m of filas) {
+    if (m.direction !== "in" || !m.wa_message_id || m.status === "read") continue;
+    try {
+      await markMessageAsRead(m.wa_message_id, config);
+      await supabase.from("whatsapp_messages").update({ status: "read" }).eq("id", m.id);
+    } catch {
+      // Meta o fila inválida: no bloquea la bandeja
+    }
+  }
+
+  const { data: dataRefrescado, error: err2 } = await supabase
+    .from("whatsapp_messages")
+    .select("id, direction, from_phone, to_phone, body, media_type, media_url, status, error, sent_at, received_at, wa_message_id")
+    .or(`from_phone.eq.${phone},to_phone.eq.${phone}`)
+    .order("received_at", { ascending: true })
+    .limit(300);
+  if (err2) return NextResponse.json({ error: err2.message }, { status: 500 });
+  const mensajesFinales = dataRefrescado ?? data ?? [];
+
+  const ultimoEntrante = (mensajesFinales ?? [])
     .filter((m: { direction: string }) => m.direction === "in")
     .sort(
       (a: { received_at: string }, b: { received_at: string }) =>
@@ -40,7 +71,7 @@ export async function GET(req: Request) {
     : false;
 
   return NextResponse.json({
-    mensajes: data ?? [],
+    mensajes: mensajesFinales,
     ventanaAbierta,
     ventanaCierraEn,
   });
@@ -50,18 +81,36 @@ export async function POST(req: Request) {
   const auth = await requireAdminApi();
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
-  let body: { phone?: string; text?: string };
+  let body: {
+    phone?: string;
+    text?: string;
+    media?: { kind: "image" | "video" | "document"; link: string; caption?: string };
+  };
   try {
-    body = (await req.json()) as { phone?: string; text?: string };
+    body = (await req.json()) as {
+      phone?: string;
+      text?: string;
+      media?: { kind: "image" | "video" | "document"; link: string; caption?: string };
+    };
   } catch {
     return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
   }
   const phone = normalizarTelefonoWaUruguay(body.phone ?? "");
   const text = (body.text ?? "").trim();
+  const media = body.media;
+  const linkMedia = typeof media?.link === "string" ? media.link.trim() : "";
   if (!phone || !esTelefonoUyValido(phone)) {
     return NextResponse.json({ error: "Teléfono inválido." }, { status: 400 });
   }
-  if (!text) return NextResponse.json({ error: "Texto vacío." }, { status: 400 });
+  if (!text && !(media && linkMedia)) {
+    return NextResponse.json({ error: "Falta texto o media." }, { status: 400 });
+  }
+  if (media && !linkMedia) {
+    return NextResponse.json({ error: "Falta link del archivo." }, { status: 400 });
+  }
+  if (media && !["image", "video", "document"].includes(media.kind)) {
+    return NextResponse.json({ error: "Tipo de media inválido." }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
   const { data: ultimoEntrante } = await supabase
@@ -85,6 +134,27 @@ export async function POST(req: Request) {
 
   try {
     const config = await leerConfigWhatsapp();
+    if (media && linkMedia) {
+      const cap = (media.caption ?? "").trim() || null;
+      const resultado = await sendMediaMessage(phone, media.kind, linkMedia, cap, config);
+      const waId = resultado.messages?.[0]?.id ?? null;
+      const cuerpo = cap ?? `(${media.kind})`;
+      await supabase.from("whatsapp_messages").upsert(
+        {
+          wa_message_id: waId ?? `local-${Date.now()}`,
+          direction: "out",
+          from_phone: config.valores.phone_number_id,
+          to_phone: phone,
+          body: cuerpo,
+          media_type: media.kind,
+          media_url: linkMedia,
+          status: "sent",
+          sent_at: new Date().toISOString(),
+        },
+        { onConflict: "wa_message_id" },
+      );
+      return NextResponse.json({ ok: true, waMessageId: waId });
+    }
     const resultado = await sendTextMessage(phone, text, config);
     const waId = resultado.messages?.[0]?.id ?? null;
     await supabase.from("whatsapp_messages").upsert(

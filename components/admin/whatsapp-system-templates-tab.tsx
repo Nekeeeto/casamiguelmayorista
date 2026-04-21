@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
-import { Loader2, SlidersHorizontal, Sparkles, Timer, UserMinus, UserPlus } from "lucide-react";
+import { Loader2, Sparkles, Timer, UserMinus, UserPlus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -122,7 +122,7 @@ export function WhatsappSystemTemplatesTab() {
     greetingOn: true,
     delayOn: false,
   });
-  const [guardandoAuto, setGuardandoAuto] = useState(false);
+  const [guardandoSeccion, setGuardandoSeccion] = useState<string | null>(null);
 
   const metaElegibles = useMemo(
     () => metaTemplates.filter(plantillaMetaElegible),
@@ -136,12 +136,6 @@ export function WhatsappSystemTemplatesTab() {
     };
     return [...templates].sort((a, b) => rank(a.key) - rank(b.key));
   }, [templates]);
-
-  const autoCambiado =
-    kwOptOut !== origAuto.kwOptOut ||
-    kwOptIn !== origAuto.kwOptIn ||
-    greetingOn !== origAuto.greetingOn ||
-    delayOn !== origAuto.delayOn;
 
   const cargarMeta = useCallback(async () => {
     setCargandoMeta(true);
@@ -289,38 +283,35 @@ export function WhatsappSystemTemplatesTab() {
     [edicion, cargar],
   );
 
-  const guardarAutomaciones = useCallback(async () => {
-    setGuardandoAuto(true);
-    try {
-      const res = await fetch("/api/admin/whatsapp/configuracion", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keywords_opt_out: kwOptOut,
-          keywords_opt_in: kwOptIn,
-          automation_greeting_enabled: greetingOn,
-          automation_delay_enabled: delayOn,
-        }),
-      });
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(payload.error ?? `HTTP ${res.status}`);
+  const guardarConfigParcial = useCallback(
+    async (
+      seccion: string,
+      payload: Record<string, string | boolean>,
+      onOk: () => void,
+    ) => {
+      setGuardandoSeccion(seccion);
+      try {
+        const res = await fetch("/api/admin/whatsapp/configuracion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(errBody.error ?? `HTTP ${res.status}`);
+        }
+        toast.success("Guardado.");
+        onOk();
+      } catch (error) {
+        toast.error("No se pudo guardar.", {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      } finally {
+        setGuardandoSeccion(null);
       }
-      toast.success("Palabras y opciones guardadas.");
-      setOrigAuto({
-        kwOptOut,
-        kwOptIn,
-        greetingOn,
-        delayOn,
-      });
-    } catch (error) {
-      toast.error("No se pudo guardar.", {
-        description: error instanceof Error ? error.message : undefined,
-      });
-    } finally {
-      setGuardandoAuto(false);
-    }
-  }, [delayOn, greetingOn, kwOptIn, kwOptOut]);
+    },
+    [],
+  );
 
   if (cargando) {
     return (
@@ -332,90 +323,11 @@ export function WhatsappSystemTemplatesTab() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-primary">
-              <SlidersHorizontal className="size-5" aria-hidden />
-            </span>
-            <div className="min-w-0 space-y-1">
-              <CardTitle className="text-base leading-snug">Palabras y automatizaciones</CardTitle>
-              <CardDescription>
-                Palabras separadas por comas: el mensaje del contacto debe ser <strong>solo</strong> esa palabra (como
-                en WANotifier). Primero se evalúan baja/alta; si no coinciden y el saludo está activo, el{" "}
-                <strong>primer</strong> mensaje entrante dispara el saludo.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="wa-kw-out">Palabras de baja (opt-out)</Label>
-              <Input
-                id="wa-kw-out"
-                value={kwOptOut}
-                onChange={(e) => setKwOptOut(e.target.value)}
-                placeholder={KEYWORDS_OPT_OUT_DEFAULT}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="wa-kw-in">Palabras de alta (opt-in)</Label>
-              <Input
-                id="wa-kw-in"
-                value={kwOptIn}
-                onChange={(e) => setKwOptIn(e.target.value)}
-                placeholder={KEYWORDS_OPT_IN_DEFAULT}
-              />
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-muted/25 px-3 py-3">
-              <div className="min-w-0 space-y-0.5 pr-2">
-                <Label htmlFor="wa-greet" className="text-sm font-medium leading-tight">
-                  Saludo automático
-                </Label>
-                <p className="text-xs text-muted-foreground">Primer mensaje del contacto (si no es baja/alta).</p>
-              </div>
-              <Switch
-                id="wa-greet"
-                checked={greetingOn}
-                onCheckedChange={setGreetingOn}
-                disabled={guardandoAuto}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-muted/25 px-3 py-3">
-              <div className="min-w-0 space-y-0.5 pr-2">
-                <Label htmlFor="wa-delay" className="text-sm font-medium leading-tight">
-                  Demora (plantilla)
-                </Label>
-                <p className="text-xs text-muted-foreground">Solo guarda plantilla; envío automático pendiente.</p>
-              </div>
-              <Switch id="wa-delay" checked={delayOn} onCheckedChange={setDelayOn} disabled={guardandoAuto} />
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={() => void guardarAutomaciones()} disabled={!autoCambiado || guardandoAuto}>
-              {guardandoAuto ? <Loader2 className="size-4 animate-spin" /> : null}
-              Guardar palabras y opciones
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!autoCambiado || guardandoAuto}
-              onClick={() => {
-                setKwOptOut(origAuto.kwOptOut);
-                setKwOptIn(origAuto.kwOptIn);
-                setGreetingOn(origAuto.greetingOn);
-                setDelayOn(origAuto.delayOn);
-              }}
-            >
-              Revertir
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+        Palabras separadas por comas: el mensaje del contacto debe ser <strong>solo</strong> esa palabra. Primero se
+        evalúan baja/alta; si no coinciden y el saludo está activo, el <strong>primer</strong> mensaje entrante dispara
+        el saludo. Cada tarjeta tiene su propio guardado (config parcial).
+      </p>
 
       <p className="text-sm text-muted-foreground">
         En cada bloque: <strong>texto libre</strong> (sesión 24h) o <strong>plantilla Meta</strong>. Headers imagen/video
@@ -469,6 +381,184 @@ export function WhatsappSystemTemplatesTab() {
               </div>
             </CardHeader>
             <CardContent className="mt-auto flex flex-1 flex-col space-y-4 pt-0">
+              {t.key === "greeting_auto" ? (
+                <div className="space-y-2 rounded-md border border-border/80 bg-muted/20 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 space-y-0.5 pr-2">
+                      <Label htmlFor="wa-greet-card" className="text-sm font-medium">
+                        Activar saludo automático
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Primer mensaje del contacto si no coincide baja/alta.
+                      </p>
+                    </div>
+                    <Switch
+                      id="wa-greet-card"
+                      checked={greetingOn}
+                      onCheckedChange={setGreetingOn}
+                      disabled={guardandoSeccion !== null}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={greetingOn === origAuto.greetingOn || guardandoSeccion !== null}
+                      onClick={() =>
+                        void guardarConfigParcial(
+                          "greet",
+                          { automation_greeting_enabled: greetingOn },
+                          () => setOrigAuto((o) => ({ ...o, greetingOn })),
+                        )
+                      }
+                    >
+                      {guardandoSeccion === "greet" ? <Loader2 className="size-4 animate-spin" /> : null}
+                      Guardar opción
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={
+                        greetingOn === origAuto.greetingOn || guardandoSeccion === "greet"
+                      }
+                      onClick={() => setGreetingOn(origAuto.greetingOn)}
+                    >
+                      Revertir
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {t.key === "delay_auto" ? (
+                <div className="space-y-2 rounded-md border border-border/80 bg-muted/20 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 space-y-0.5 pr-2">
+                      <Label htmlFor="wa-delay-card" className="text-sm font-medium">
+                        Demora (plantilla)
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Solo guarda plantilla; envío automático pendiente.
+                      </p>
+                    </div>
+                    <Switch
+                      id="wa-delay-card"
+                      checked={delayOn}
+                      onCheckedChange={setDelayOn}
+                      disabled={guardandoSeccion !== null}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={delayOn === origAuto.delayOn || guardandoSeccion !== null}
+                      onClick={() =>
+                        void guardarConfigParcial(
+                          "delay",
+                          { automation_delay_enabled: delayOn },
+                          () => setOrigAuto((o) => ({ ...o, delayOn })),
+                        )
+                      }
+                    >
+                      {guardandoSeccion === "delay" ? <Loader2 className="size-4 animate-spin" /> : null}
+                      Guardar opción
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={delayOn === origAuto.delayOn || guardandoSeccion === "delay"}
+                      onClick={() => setDelayOn(origAuto.delayOn)}
+                    >
+                      Revertir
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {t.key === "opt_out_confirmacion" ? (
+                <div className="space-y-2 rounded-md border border-border/80 bg-muted/20 p-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wa-kw-out-card">Palabras de baja (opt-out)</Label>
+                    <Input
+                      id="wa-kw-out-card"
+                      value={kwOptOut}
+                      onChange={(e) => setKwOptOut(e.target.value)}
+                      placeholder={KEYWORDS_OPT_OUT_DEFAULT}
+                      disabled={guardandoSeccion !== null}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={kwOptOut === origAuto.kwOptOut || guardandoSeccion !== null}
+                      onClick={() =>
+                        void guardarConfigParcial(
+                          "opt_out",
+                          { keywords_opt_out: kwOptOut },
+                          () => setOrigAuto((o) => ({ ...o, kwOptOut })),
+                        )
+                      }
+                    >
+                      {guardandoSeccion === "opt_out" ? <Loader2 className="size-4 animate-spin" /> : null}
+                      Guardar palabras
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={kwOptOut === origAuto.kwOptOut || guardandoSeccion === "opt_out"}
+                      onClick={() => setKwOptOut(origAuto.kwOptOut)}
+                    >
+                      Revertir
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {t.key === "opt_in_confirmacion" ? (
+                <div className="space-y-2 rounded-md border border-border/80 bg-muted/20 p-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wa-kw-in-card">Palabras de alta (opt-in)</Label>
+                    <Input
+                      id="wa-kw-in-card"
+                      value={kwOptIn}
+                      onChange={(e) => setKwOptIn(e.target.value)}
+                      placeholder={KEYWORDS_OPT_IN_DEFAULT}
+                      disabled={guardandoSeccion !== null}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={kwOptIn === origAuto.kwOptIn || guardandoSeccion !== null}
+                      onClick={() =>
+                        void guardarConfigParcial(
+                          "opt_in",
+                          { keywords_opt_in: kwOptIn },
+                          () => setOrigAuto((o) => ({ ...o, kwOptIn })),
+                        )
+                      }
+                    >
+                      {guardandoSeccion === "opt_in" ? <Loader2 className="size-4 animate-spin" /> : null}
+                      Guardar palabras
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={kwOptIn === origAuto.kwOptIn || guardandoSeccion === "opt_in"}
+                      onClick={() => setKwOptIn(origAuto.kwOptIn)}
+                    >
+                      Revertir
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="space-y-1.5">
                 <Label>Tipo de respuesta</Label>
                 <Select

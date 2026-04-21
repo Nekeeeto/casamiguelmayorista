@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
+import { Suspense, useMemo } from "react";
 import {
   Inbox,
   LayoutDashboard,
@@ -11,6 +12,7 @@ import {
   ShoppingBag,
   Users,
 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Toaster } from "sonner";
 
 import { WhatsappBandejaTab } from "@/components/admin/whatsapp-bandeja-tab";
@@ -22,6 +24,23 @@ import { WhatsappNotificacionesWooTab } from "@/components/admin/whatsapp-notifi
 import { WhatsappSystemTemplatesTab } from "@/components/admin/whatsapp-system-templates-tab";
 import { WhatsappTemplatesTab } from "@/components/admin/whatsapp-templates-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const TAB_VALUES = [
+  "inicio",
+  "templates",
+  "system-templates",
+  "contactos",
+  "broadcast",
+  "bandeja",
+  "notif-woo",
+  "configuracion",
+] as const;
+
+type TabValue = (typeof TAB_VALUES)[number];
+
+function isTabValue(v: string): v is TabValue {
+  return (TAB_VALUES as readonly string[]).includes(v);
+}
 
 function TabIconLabel({
   icon: Icon,
@@ -35,7 +54,26 @@ function TabIconLabel({
   );
 }
 
-export function WhatsappMarketingPanel() {
+function WhatsappMarketingPanelInner() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeTab = useMemo(() => {
+    const t = searchParams.get("tab");
+    return t && isTabValue(t) ? t : "inicio";
+  }, [searchParams]);
+
+  const setTab = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === "inicio") {
+      params.delete("tab");
+    } else {
+      params.set("tab", value);
+    }
+    const q = params.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -45,7 +83,7 @@ export function WhatsappMarketingPanel() {
           WooCommerce — todo sobre tu número de WhatsApp Business Cloud API.
         </p>
       </div>
-      <Tabs defaultValue="inicio" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setTab} className="space-y-4">
         <TabsList className="flex h-auto min-h-10 w-full flex-wrap items-stretch justify-start gap-1 bg-muted p-1 sm:inline-flex sm:w-auto">
           <TabsTrigger value="inicio" className="px-3 py-2">
             <TabIconLabel icon={LayoutDashboard} label="Inicio" />
@@ -99,5 +137,23 @@ export function WhatsappMarketingPanel() {
       </Tabs>
       <Toaster theme="dark" richColors position="top-center" closeButton />
     </div>
+  );
+}
+
+function PanelSuspenseFallback() {
+  return (
+    <div className="space-y-4">
+      <div className="h-16 animate-pulse rounded-md bg-muted" />
+      <div className="h-10 w-full max-w-3xl animate-pulse rounded-md bg-muted" />
+      <div className="h-64 animate-pulse rounded-md bg-muted" />
+    </div>
+  );
+}
+
+export function WhatsappMarketingPanel() {
+  return (
+    <Suspense fallback={<PanelSuspenseFallback />}>
+      <WhatsappMarketingPanelInner />
+    </Suspense>
   );
 }

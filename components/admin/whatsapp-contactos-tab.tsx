@@ -54,7 +54,48 @@ type Contacto = {
   ultimo_mensaje: string | null;
   opted_out: boolean;
   opted_out_at: string | null;
+  avatar_url?: string | null;
 };
+
+type FiltroPreset = { id: string; nombre: string; tags: string[] };
+
+const PRESETS_STORAGE_KEY = "wa_mayoristas_contact_list_presets_v1";
+
+function inicialesContacto(nombre: string, telefono: string): string {
+  const n = nombre.trim();
+  if (n) {
+    const parts = n.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const a = parts[0]?.[0];
+      const b = parts[1]?.[0];
+      if (a && b) return (a + b).toUpperCase();
+    }
+    return n.slice(0, 2).toUpperCase();
+  }
+  const d = telefono.replace(/\D/g, "");
+  return d.slice(-2).toUpperCase() || "?";
+}
+
+function AvatarContacto({
+  nombre,
+  telefono,
+  url,
+}: Readonly<{ nombre: string; telefono: string; url: string | null }>) {
+  const ini = inicialesContacto(nombre, telefono);
+  if (url && /^https:\/\//i.test(url)) {
+    return (
+      <img src={url} alt="" className="size-9 shrink-0 rounded-full object-cover ring-1 ring-border" />
+    );
+  }
+  return (
+    <div
+      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-foreground"
+      aria-hidden
+    >
+      {ini}
+    </div>
+  );
+}
 
 type OrdenCol = "nombre" | "fecha_creacion" | "ultimo_mensaje";
 type Direccion = "asc" | "desc";
@@ -98,6 +139,7 @@ export function WhatsappContactosTab() {
   const [mapeoColumnas, setMapeoColumnas] = useState<Partial<MapeoColumnasContacto>>({});
   const [confirmarBorrar, setConfirmarBorrar] = useState<Contacto | null>(null);
   const [operando, setOperando] = useState<string | null>(null);
+  const [presetsFiltro, setPresetsFiltro] = useState<FiltroPreset[]>([]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -140,6 +182,41 @@ export function WhatsappContactosTab() {
   useEffect(() => {
     void cargarTags();
   }, [cargarTags]);
+
+  useEffect(() => {
+    try {
+      const raw = globalThis.localStorage?.getItem(PRESETS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return;
+      const next: FiltroPreset[] = [];
+      for (const row of parsed) {
+        if (!row || typeof row !== "object") continue;
+        const r = row as { id?: string; nombre?: string; tags?: string[] };
+        if (typeof r.nombre !== "string" || !Array.isArray(r.tags)) continue;
+        next.push({ id: typeof r.id === "string" ? r.id : crypto.randomUUID(), nombre: r.nombre, tags: r.tags });
+      }
+      setPresetsFiltro(next);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const persistirPresets = useCallback((next: FiltroPreset[]) => {
+    setPresetsFiltro(next);
+    try {
+      globalThis.localStorage?.setItem(PRESETS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const guardarPresetFiltro = useCallback(() => {
+    const nombre = globalThis.prompt?.("Nombre de la lista (tags actuales)")?.trim();
+    if (!nombre) return;
+    const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`;
+    persistirPresets([...presetsFiltro, { id, nombre, tags: [...tagsSeleccionadas] }]);
+  }, [persistirPresets, presetsFiltro, tagsSeleccionadas]);
 
   useEffect(() => {
     if (!dialogImport || !csvTexto.trim()) {
@@ -253,6 +330,7 @@ export function WhatsappContactosTab() {
         telefono: enEdicion.telefono,
         tags: enEdicion.tags,
         notas: enEdicion.notas,
+        avatar_url: enEdicion.avatar_url ?? null,
       }
     : undefined;
 
@@ -333,7 +411,33 @@ export function WhatsappContactosTab() {
               <SelectItem value="baja">Dados de baja</SelectItem>
             </SelectContent>
           </Select>
+          <Button type="button" variant="outline" size="sm" onClick={guardarPresetFiltro}>
+            Guardar lista (tags)
+          </Button>
         </div>
+        {presetsFiltro.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Listas:</span>
+            {presetsFiltro.map((p) => (
+              <span key={p.id} className="inline-flex items-center gap-1">
+                <Button type="button" variant="secondary" size="sm" onClick={() => setTagsSeleccionadas([...p.tags])}>
+                  {p.nombre}
+                  {p.tags.length ? ` (${p.tags.length})` : ""}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-1 text-muted-foreground"
+                  onClick={() => persistirPresets(presetsFiltro.filter((x) => x.id !== p.id))}
+                  aria-label={`Eliminar preset ${p.nombre}`}
+                >
+                  ×
+                </Button>
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         {cargando ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -381,7 +485,16 @@ export function WhatsappContactosTab() {
             <TableBody>
               {contactos.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell className="font-medium">{c.nombre || "—"}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <AvatarContacto
+                        nombre={c.nombre}
+                        telefono={c.telefono}
+                        url={c.avatar_url ?? null}
+                      />
+                      <span className="font-medium">{c.nombre || "—"}</span>
+                    </div>
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{formatearTelefonoParaUi(c.telefono)}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">

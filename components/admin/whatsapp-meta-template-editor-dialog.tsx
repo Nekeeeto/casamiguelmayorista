@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus } from "lucide-react";
+import { Hash, Loader2, Plus, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,7 +20,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
+  eliminarTodasVariables,
   indicesVariablesPlantilla,
+  renumerarVariablesEnTexto,
+  quitarVariableNumero,
   validarNombrePlantillaMeta,
   type CategoriaPlantillaMeta,
   type EncabezadoPlantillaForm,
@@ -88,6 +91,7 @@ export function WhatsappMetaTemplateEditorDialog({
   const [botonEjemploUrl, setBotonEjemploUrl] = useState("");
   const [muestras, setMuestras] = useState<Record<number, string>>({});
   const [enviando, setEnviando] = useState(false);
+  const [subiendoHeader, setSubiendoHeader] = useState(false);
 
   const boton: FormCrearPlantillaMeta["boton"] = useMemo(() => {
     if (!conBoton) return null;
@@ -210,6 +214,49 @@ export function WhatsappMetaTemplateEditorDialog({
     setCuerpo((prev) => `${prev}{{${siguiente}}}`);
   };
 
+  const aplicarRenumerarVariables = () => {
+    setCuerpo((prev) => renumerarVariablesEnTexto(prev));
+    if (conBoton) setBotonUrl((prev) => renumerarVariablesEnTexto(prev));
+    setEncabezado((prev) =>
+      prev.tipo === "text" ? { tipo: "text", texto: renumerarVariablesEnTexto(prev.texto) } : prev,
+    );
+  };
+
+  const aplicarQuitarTodasVariables = () => {
+    setCuerpo((prev) => eliminarTodasVariables(prev));
+    if (conBoton) setBotonUrl((prev) => eliminarTodasVariables(prev));
+    setEncabezado((prev) =>
+      prev.tipo === "text" ? { tipo: "text", texto: eliminarTodasVariables(prev.texto) } : prev,
+    );
+  };
+
+  const quitarVariableN = (n: number) => {
+    setCuerpo((prev) => quitarVariableNumero(prev, n));
+    if (conBoton) setBotonUrl((prev) => quitarVariableNumero(prev, n));
+    setEncabezado((prev) =>
+      prev.tipo === "text" ? { tipo: "text", texto: quitarVariableNumero(prev.texto, n) } : prev,
+    );
+  };
+
+  const subirImagenHeader = async (archivo: File | null) => {
+    if (!archivo) return;
+    setSubiendoHeader(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", archivo);
+      const res = await fetch("/api/admin/whatsapp/media/upload", { method: "POST", body: fd });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (!data.url) throw new Error("Sin URL pública.");
+      setEncabezado({ tipo: "image", url: data.url });
+      toast.success("Imagen subida; URL lista para Meta.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al subir.");
+    } finally {
+      setSubiendoHeader(false);
+    }
+  };
+
   return (
     <Dialog open={abierto} onOpenChange={onAbiertoChange}>
       <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
@@ -279,9 +326,11 @@ export function WhatsappMetaTemplateEditorDialog({
             <Label>Encabezado (opcional)</Label>
             <Select
               value={encabezado.tipo}
-              onValueChange={(v) =>
-                setEncabezado(v === "text" ? { tipo: "text", texto: "" } : { tipo: "none" })
-              }
+              onValueChange={(v) => {
+                if (v === "text") setEncabezado({ tipo: "text", texto: "" });
+                else if (v === "image") setEncabezado({ tipo: "image", url: "" });
+                else setEncabezado({ tipo: "none" });
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -289,6 +338,7 @@ export function WhatsappMetaTemplateEditorDialog({
               <SelectContent>
                 <SelectItem value="none">Ninguno</SelectItem>
                 <SelectItem value="text">Texto (máx. 60)</SelectItem>
+                <SelectItem value="image">Imagen (URL HTTPS pública)</SelectItem>
               </SelectContent>
             </Select>
             {encabezado.tipo === "text" ? (
@@ -299,15 +349,71 @@ export function WhatsappMetaTemplateEditorDialog({
                 maxLength={60}
               />
             ) : null}
+            {encabezado.tipo === "image" ? (
+              <div className="space-y-2">
+                <Input
+                  value={encabezado.url}
+                  onChange={(e) => setEncabezado({ tipo: "image", url: e.target.value.slice(0, 2000) })}
+                  placeholder="https://… (Meta debe poder descargarla)"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={subiendoHeader}
+                    onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = "image/jpeg,image/png,image/webp,image/gif";
+                      input.onchange = () => {
+                        const f = input.files?.[0];
+                        void subirImagenHeader(f ?? null);
+                      };
+                      input.click();
+                    }}
+                  >
+                    {subiendoHeader ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Upload className="size-4" />
+                    )}
+                    Subir imagen
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Bucket público <code className="rounded bg-muted px-1">whatsapp-media</code> (SQL en repo).
+                  </p>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label htmlFor="wa-tpl-body">Cuerpo *</Label>
-              <Button type="button" variant="outline" size="sm" onClick={agregarVariableAlCuerpo}>
-                <Plus className="size-3.5" /> Variable
-              </Button>
+              <div className="flex flex-wrap gap-1">
+                <Button type="button" variant="outline" size="sm" onClick={agregarVariableAlCuerpo}>
+                  <Plus className="size-3.5" /> Variable
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={aplicarRenumerarVariables}>
+                  <Hash className="size-3.5" /> Renumerar {"{{n}}"}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={aplicarQuitarTodasVariables}>
+                  <Trash2 className="size-3.5" /> Quitar todas
+                </Button>
+              </div>
             </div>
+            {idsVariables.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {idsVariables.map((n) => (
+                  <Button key={n} type="button" variant="secondary" size="sm" onClick={() => quitarVariableN(n)}>
+                    Quitar {"{{"}
+                    {n}
+                    {"}}"}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
             <Textarea
               id="wa-tpl-body"
               value={cuerpo}

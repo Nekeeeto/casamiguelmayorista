@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   const auth = await requireAdminApi();
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
-  let body: { nombre?: string; telefono?: string; tags?: string[]; notas?: string };
+  let body: { nombre?: string; telefono?: string; tags?: string[]; notas?: string; avatar_url?: string | null };
   try {
     body = await req.json();
   } catch {
@@ -53,6 +53,7 @@ export async function POST(req: Request) {
       telefono: body.telefono,
       tags: body.tags,
       notas: body.notas,
+      avatar_url: body.avatar_url,
     });
     return NextResponse.json({ contacto }, { status: 201 });
   } catch (error) {

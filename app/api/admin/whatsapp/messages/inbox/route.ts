@@ -19,6 +19,7 @@ type ContactoFila = {
   nombre: string;
   telefono: string;
   opted_out: boolean;
+  avatar_url: string | null;
 };
 
 export async function GET() {
@@ -62,7 +63,7 @@ export async function GET() {
   if (telefonos.length > 0) {
     const { data: filas } = await supabase
       .from("whatsapp_contacts")
-      .select("id, nombre, telefono, opted_out")
+      .select("id, nombre, telefono, opted_out, avatar_url")
       .in("telefono", telefonos);
     contactos = (filas ?? []) as ContactoFila[];
   }
@@ -77,6 +78,7 @@ export async function GET() {
         nombre: contacto?.nombre ?? null,
         contactId: contacto?.id ?? null,
         optedOut: contacto?.opted_out ?? false,
+        avatarUrl: contacto?.avatar_url ?? null,
         ultimo: conv.ultimo,
         ultimoEntrante: conv.ultimoEntrante,
         entrantesNoLeidos: conv.entrantesNoLeidos,

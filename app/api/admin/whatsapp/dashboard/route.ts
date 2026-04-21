@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { requireAdminApi } from "@/lib/require-admin-api";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { getPhoneNumberInfo, WhatsappCloudApiError } from "@/lib/whatsapp-cloud-api";
+import {
+  getPhoneNumberInfo,
+  listMessageTemplatesPreview,
+  WhatsappCloudApiError,
+} from "@/lib/whatsapp-cloud-api";
 import { leerConfigWhatsapp } from "@/lib/whatsapp-config";
 
 const DIAS_PERIODO = 30;
@@ -128,6 +132,76 @@ export async function GET() {
 
   const costeTotalBroadcasts = filas.reduce((acc, f) => acc + Number(f.coste_estimado_usd ?? 0), 0);
 
+  const broadcastsPorEstado: Record<string, number> = {};
+  for (const f of filas) {
+    const s = f.status ?? "desconocido";
+    broadcastsPorEstado[s] = (broadcastsPorEstado[s] ?? 0) + 1;
+  }
+
+  const bucketsDia: Record<string, number> = {};
+  const pageSize = 1000;
+  let offset = 0;
+  for (;;) {
+    const { data: filasMsg, error: errMsgPage } = await supabase
+      .from("whatsapp_messages")
+      .select("received_at")
+      .eq("direction", "out")
+      .gte("received_at", desdeIso)
+      .order("received_at", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (errMsgPage) {
+      return NextResponse.json({ error: errMsgPage.message }, { status: 500 });
+    }
+    const chunk = filasMsg ?? [];
+    for (const row of chunk) {
+      const r = row as { received_at: string };
+      const dia = r.received_at.slice(0, 10);
+      bucketsDia[dia] = (bucketsDia[dia] ?? 0) + 1;
+    }
+    if (chunk.length < pageSize) break;
+    offset += pageSize;
+    if (offset > 200_000) break;
+  }
+
+  const mensajesSalientesPorDia: { dia: string; total: number }[] = [];
+  const finUtc = new Date();
+  for (let i = DIAS_PERIODO - 1; i >= 0; i -= 1) {
+    const d = new Date(
+      Date.UTC(finUtc.getUTCFullYear(), finUtc.getUTCMonth(), finUtc.getUTCDate() - i),
+    );
+    const dia = d.toISOString().slice(0, 10);
+    mensajesSalientesPorDia.push({ dia, total: bucketsDia[dia] ?? 0 });
+  }
+
+  const { data: notifRows, error: errN } = await supabase
+    .from("whatsapp_messages")
+    .select("received_at, body, to_phone")
+    .eq("direction", "out")
+    .ilike("body", "[trigger %")
+    .order("received_at", { ascending: false })
+    .limit(8);
+  if (errN) {
+    return NextResponse.json({ error: errN.message }, { status: 500 });
+  }
+
+  let templatesMetaPreview: Array<{
+    name: string;
+    language: string;
+    status: string;
+    category: string;
+  }> = [];
+  try {
+    const preview = await listMessageTemplatesPreview(15, configPricing);
+    templatesMetaPreview = preview.map((t) => ({
+      name: t.name,
+      language: t.language,
+      status: t.status,
+      category: t.category,
+    }));
+  } catch {
+    templatesMetaPreview = [];
+  }
+
   return NextResponse.json({
     cuenta,
     pricing: configPricing.pricing,
@@ -136,6 +210,10 @@ export async function GET() {
     costeTotalEstimadoBroadcastsUsd: Number(costeTotalBroadcasts.toFixed(4)),
     contactosTotal: contactosTotal ?? 0,
     mensajesSalientesPeriodo: mensajesSalientes ?? 0,
+    mensajesSalientesPorDia,
+    broadcastsPorEstado,
+    templatesMetaPreview,
+    notificacionesTriggerRecientes: notifRows ?? [],
     broadcastsRecientes: recientes ?? [],
   });
 }

@@ -8,7 +8,14 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   const { id } = await context.params;
-  let body: { nombre?: string; telefono?: string; tags?: string[]; notas?: string; opted_out?: boolean };
+  let body: {
+    nombre?: string;
+    telefono?: string;
+    tags?: string[];
+    notas?: string;
+    opted_out?: boolean;
+    avatar_url?: string | null;
+  };
   try {
     body = await req.json();
   } catch {

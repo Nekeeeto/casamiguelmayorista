@@ -2,7 +2,10 @@ import type { WhatsappTemplateComponent } from "@/lib/whatsapp-cloud-api";
 
 export type CategoriaPlantillaMeta = "MARKETING" | "UTILITY" | "AUTHENTICATION";
 
-export type EncabezadoPlantillaForm = { tipo: "none" } | { tipo: "text"; texto: string };
+export type EncabezadoPlantillaForm =
+  | { tipo: "none" }
+  | { tipo: "text"; texto: string }
+  | { tipo: "image"; url: string };
 
 export type BotonUrlPlantillaForm = {
   texto: string;
@@ -27,6 +30,39 @@ export function validarNombrePlantillaMeta(nombre: string): string | null {
   if (t.length < 1 || t.length > 512) return "El nombre debe tener entre 1 y 512 caracteres.";
   if (!/^[a-z0-9_]+$/.test(t)) return "Solo minúsculas, números y guiones bajos (sin espacios).";
   return null;
+}
+
+export function quitarVariableNumero(texto: string, nEliminar: number): string {
+  return texto.replace(new RegExp(`\\{\\{\\s*${nEliminar}\\s*\\}\\}`, "g"), "");
+}
+
+export function eliminarTodasVariables(texto: string): string {
+  return texto.replace(/\{\{\s*\d+\s*\}\}/g, "");
+}
+
+/** Primera aparición de cada índice pasa a 1,2,3… en ese orden (Meta exige correlativos). */
+export function renumerarVariablesEnTexto(texto: string): string {
+  const matches = [...texto.matchAll(/\{\{\s*(\d+)\s*\}\}/g)];
+  if (matches.length === 0) return texto;
+  const ordenAparicion: number[] = [];
+  const visto = new Set<number>();
+  for (const m of matches) {
+    const oldN = Number(m[1]);
+    if (!Number.isFinite(oldN) || oldN < 1) continue;
+    if (!visto.has(oldN)) {
+      visto.add(oldN);
+      ordenAparicion.push(oldN);
+    }
+  }
+  const mapa = new Map<number, number>();
+  ordenAparicion.forEach((oldN, i) => {
+    mapa.set(oldN, i + 1);
+  });
+  return texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (_full, d: string) => {
+    const oldN = Number(d);
+    const nu = mapa.get(oldN);
+    return nu !== undefined ? `{{${nu}}}` : `{{${d}}}`;
+  });
 }
 
 export function indicesVariablesEnOrden(texto: string): number[] {
@@ -65,16 +101,23 @@ function indicesUsadosGlobales(partes: string[]): number[] {
 export function validarMuestrasCompletas(form: FormCrearPlantillaMeta): string | null {
   const headerText =
     form.encabezado.tipo === "text" ? form.encabezado.texto.trim() : "";
+  const headerImageUrl = form.encabezado.tipo === "image" ? form.encabezado.url.trim() : "";
   const body = form.cuerpo.trim();
   const footer = form.pie.trim();
   const urlBtn = form.boton?.url.trim() ?? "";
 
   if (!body) return "El cuerpo del mensaje es obligatorio.";
+  if (form.encabezado.tipo === "image") {
+    if (!headerImageUrl) return "Falta URL HTTPS de la imagen del encabezado (o subí un archivo).";
+    if (!/^https:\/\//i.test(headerImageUrl)) {
+      return "La imagen del encabezado debe ser una URL pública HTTPS (Meta la descarga al revisar).";
+    }
+  }
   if (indicesVariablesEnOrden(footer).length > 0) {
     return "El pie no puede tener {{variables}} en este generador; usá texto fijo o sacá los marcadores.";
   }
 
-  const partes = [headerText, body, urlBtn].filter((p) => p.length > 0);
+  const partes = [headerText, headerImageUrl, body, urlBtn].filter((p) => p.length > 0);
   const usados = indicesUsadosGlobales(partes);
   for (const n of usados) {
     const m = form.muestras[n]?.trim();
@@ -95,7 +138,16 @@ export function validarMuestrasCompletas(form: FormCrearPlantillaMeta): string |
 export function construirComponentesPlantillaMeta(form: FormCrearPlantillaMeta): WhatsappTemplateComponent[] {
   const out: WhatsappTemplateComponent[] = [];
 
-  if (form.encabezado.tipo === "text") {
+  if (form.encabezado.tipo === "image") {
+    const url = form.encabezado.url.trim();
+    if (url) {
+      out.push({
+        type: "HEADER",
+        format: "IMAGE",
+        example: { header_handle: [url] },
+      });
+    }
+  } else if (form.encabezado.tipo === "text") {
     const texto = form.encabezado.texto.trim();
     if (texto) {
       const header: WhatsappTemplateComponent = {
@@ -162,7 +214,12 @@ export function formularioDesdeComponentesMeta(components: WhatsappTemplateCompo
   const buttons = components.find((c) => c.type === "BUTTONS");
 
   let encabezado: EncabezadoPlantillaForm = { tipo: "none" };
-  if (header?.format === "TEXT" && header.text?.trim()) {
+  if (header?.format === "IMAGE") {
+    const h = header.example?.header_handle?.[0];
+    if (typeof h === "string" && h.trim()) {
+      encabezado = { tipo: "image", url: h.trim() };
+    }
+  } else if (header?.format === "TEXT" && header.text?.trim()) {
     encabezado = { tipo: "text", texto: header.text };
   }
 

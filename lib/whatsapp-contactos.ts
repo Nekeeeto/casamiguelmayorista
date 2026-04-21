@@ -24,6 +24,7 @@ export type ContactoWhatsapp = {
   ultimo_mensaje: string | null;
   opted_out: boolean;
   opted_out_at: string | null;
+  avatar_url: string | null;
 };
 
 export type ContactoInput = {
@@ -31,6 +32,7 @@ export type ContactoInput = {
   telefono: string;
   tags?: string[];
   notas?: string;
+  avatar_url?: string | null;
 };
 
 export type ResumenImportCsv = {
@@ -80,7 +82,10 @@ export async function listarContactos(options: {
 
   const { data, error } = await query;
   if (error) throw new Error(`No se pudieron listar contactos: ${error.message}`);
-  return (data ?? []) as ContactoWhatsapp[];
+  return (data ?? []).map((row) => {
+    const r = row as ContactoWhatsapp & { avatar_url?: string | null };
+    return { ...r, avatar_url: r.avatar_url ?? null };
+  });
 }
 
 export async function obtenerContactoPorTelefono(telefono: string): Promise<ContactoWhatsapp | null> {
@@ -91,7 +96,8 @@ export async function obtenerContactoPorTelefono(telefono: string): Promise<Cont
     .eq("telefono", telefono)
     .maybeSingle<ContactoWhatsapp>();
   if (error) throw new Error(`No se pudo leer contacto: ${error.message}`);
-  return data;
+  if (!data) return null;
+  return { ...data, avatar_url: data.avatar_url ?? null };
 }
 
 export async function crearContacto(input: ContactoInput): Promise<ContactoWhatsapp> {
@@ -100,11 +106,16 @@ export async function crearContacto(input: ContactoInput): Promise<ContactoWhats
     throw new Error("Teléfono inválido para Uruguay (esperado +598 + 8/9 dígitos).");
   }
   const supabase = getSupabaseAdmin();
+  const avatar_url =
+    input.avatar_url != null && String(input.avatar_url).trim() !== ""
+      ? String(input.avatar_url).trim()
+      : null;
   const payload = {
     nombre: input.nombre?.trim() ?? "",
     telefono,
     tags: limpiarTags(input.tags),
     notas: input.notas?.trim() ?? "",
+    avatar_url,
   };
   const { data, error } = await supabase
     .from("whatsapp_contacts")
@@ -135,6 +146,11 @@ export async function actualizarContacto(
   if (cambios.opted_out !== undefined) {
     patch.opted_out = cambios.opted_out;
     patch.opted_out_at = cambios.opted_out ? new Date().toISOString() : null;
+  }
+  if (cambios.avatar_url !== undefined) {
+    const a = cambios.avatar_url;
+    patch.avatar_url =
+      a === null || (typeof a === "string" && a.trim() === "") ? null : String(a).trim();
   }
   const { data, error } = await supabase
     .from("whatsapp_contacts")

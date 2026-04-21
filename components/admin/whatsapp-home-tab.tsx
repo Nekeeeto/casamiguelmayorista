@@ -1,9 +1,37 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { BarChart3, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  BarChart3,
+  Inbox,
+  LayoutTemplate,
+  Loader2,
+  Megaphone,
+  MessageSquare,
+  Phone,
+  Send,
+  ShieldCheck,
+  ShoppingBag,
+  Sparkles,
+  Users,
+} from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -29,6 +57,19 @@ type DashboardPayload = {
   costeTotalEstimadoBroadcastsUsd: number;
   contactosTotal: number;
   mensajesSalientesPeriodo: number;
+  mensajesSalientesPorDia: Array<{ dia: string; total: number }>;
+  broadcastsPorEstado: Record<string, number>;
+  templatesMetaPreview: Array<{
+    name: string;
+    language: string;
+    status: string;
+    category: string;
+  }>;
+  notificacionesTriggerRecientes: Array<{
+    received_at: string;
+    body: string;
+    to_phone: string;
+  }>;
   broadcastsRecientes: Array<{
     id: string;
     template_name: string;
@@ -49,6 +90,8 @@ const ETIQUETA_CAT: Record<string, string> = {
   utility: "Utilidad",
   authentication: "Autenticación",
 };
+
+const COL_ESTADO_PIE = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#94a3b8"];
 
 function etiquetaEstado(status: string): string {
   switch (status) {
@@ -72,7 +115,24 @@ function badgeVariantStatus(status: string): "default" | "success" | "warning" |
   return "default";
 }
 
+function badgeMetaTemplateStatus(status: string): "default" | "success" | "warning" | "destructive" {
+  const u = status.toUpperCase();
+  if (u === "APPROVED") return "success";
+  if (u === "PENDING") return "warning";
+  if (u === "REJECTED" || u === "DISABLED") return "destructive";
+  return "default";
+}
+
+function cortarDia(dia: string): string {
+  const [, m, d] = dia.split("-");
+  return `${m}/${d}`;
+}
+
 export function WhatsappHomeTab() {
+  const pathname = usePathname();
+  const base = pathname || "/herramientas/whatsapp-marketing";
+  const tabHref = useCallback((tab: string) => (tab === "inicio" ? base : `${base}?tab=${tab}`), [base]);
+
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +143,14 @@ export function WhatsappHomeTab() {
     try {
       const res = await fetch("/api/admin/whatsapp/dashboard", { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
-      setData((await res.json()) as DashboardPayload);
+      const json = (await res.json()) as DashboardPayload;
+      setData({
+        ...json,
+        mensajesSalientesPorDia: json.mensajesSalientesPorDia ?? [],
+        broadcastsPorEstado: json.broadcastsPorEstado ?? {},
+        templatesMetaPreview: json.templatesMetaPreview ?? [],
+        notificacionesTriggerRecientes: json.notificacionesTriggerRecientes ?? [],
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -94,6 +161,14 @@ export function WhatsappHomeTab() {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  const pieBroadcastData = useMemo(() => {
+    if (!data) return [];
+    return Object.entries(data.broadcastsPorEstado).map(([name, value]) => ({
+      name: etiquetaEstado(name),
+      value,
+    }));
+  }, [data]);
 
   if (cargando) {
     return (
@@ -119,11 +194,19 @@ export function WhatsappHomeTab() {
   const calidad = cuenta.quality_rating?.toUpperCase() ?? "—";
   const tier = cuenta.messaging_limit_tier ?? "—";
 
+  const chartSalientes = data.mensajesSalientesPorDia.map((r) => ({
+    ...r,
+    label: cortarDia(r.dia),
+  }));
+
   return (
     <div className="space-y-6">
-      <Card className="border-border/80">
+      <Card className="border-primary/20 bg-gradient-to-br from-primary/5 via-card to-card">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Estado de la cuenta</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="size-4 text-primary" aria-hidden />
+            Estado de la cuenta
+          </CardTitle>
           <CardDescription>Número conectado y señales de Meta (Cloud API).</CardDescription>
         </CardHeader>
         <CardContent>
@@ -131,15 +214,21 @@ export function WhatsappHomeTab() {
             <p className="text-sm text-amber-600 dark:text-amber-400">{cuenta.error}</p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                <p className="text-xs text-muted-foreground">Número</p>
+              <div className="rounded-lg border border-border/60 bg-background/80 px-3 py-2 shadow-sm">
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Phone className="size-3.5 shrink-0" aria-hidden />
+                  Número
+                </p>
                 <p className="font-medium">{cuenta.display_phone_number?.trim() || "—"}</p>
               </div>
-              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                <p className="text-xs text-muted-foreground">Nombre verificado</p>
+              <div className="rounded-lg border border-border/60 bg-background/80 px-3 py-2 shadow-sm">
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <ShieldCheck className="size-3.5 shrink-0" aria-hidden />
+                  Nombre verificado
+                </p>
                 <p className="truncate font-medium">{cuenta.verified_name ?? "—"}</p>
               </div>
-              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+              <div className="rounded-lg border border-border/60 bg-background/80 px-3 py-2 shadow-sm">
                 <p className="text-xs text-muted-foreground">Calidad</p>
                 <p className="font-medium">
                   {calidad !== "—" ? (
@@ -156,7 +245,7 @@ export function WhatsappHomeTab() {
                   )}
                 </p>
               </div>
-              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+              <div className="rounded-lg border border-border/60 bg-background/80 px-3 py-2 shadow-sm">
                 <p className="text-xs text-muted-foreground">Nivel de mensajes (tier)</p>
                 <p className="font-mono text-sm font-medium">{tier}</p>
               </div>
@@ -164,6 +253,106 @@ export function WhatsappHomeTab() {
           )}
         </CardContent>
       </Card>
+
+      <div className="flex flex-wrap gap-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+        <span className="w-full text-xs font-medium text-muted-foreground sm:w-auto sm:self-center sm:pr-2">
+          Ir a
+        </span>
+        <Button variant="secondary" size="sm" asChild>
+          <Link href={tabHref("templates")}>
+            <LayoutTemplate className="size-4" aria-hidden />
+            Templates Meta
+          </Link>
+        </Button>
+        <Button variant="secondary" size="sm" asChild>
+          <Link href={tabHref("broadcast")}>
+            <Megaphone className="size-4" aria-hidden />
+            Broadcast
+          </Link>
+        </Button>
+        <Button variant="secondary" size="sm" asChild>
+          <Link href={tabHref("bandeja")}>
+            <Inbox className="size-4" aria-hidden />
+            Bandeja
+          </Link>
+        </Button>
+        <Button variant="secondary" size="sm" asChild>
+          <Link href={tabHref("notif-woo")}>
+            <ShoppingBag className="size-4" aria-hidden />
+            Notif. Woo
+          </Link>
+        </Button>
+        <Button variant="secondary" size="sm" asChild>
+          <Link href={tabHref("contactos")}>
+            <Users className="size-4" aria-hidden />
+            Contactos
+          </Link>
+        </Button>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="border-border/80">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Send className="size-4 text-primary" aria-hidden />
+              Mensajes salientes por día
+            </CardTitle>
+            <CardDescription>Últimos {periodoDias} días (UTC), dirección saliente.</CardDescription>
+          </CardHeader>
+          <CardContent className="h-64 w-full min-h-[240px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartSalientes} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={4} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={36} />
+                <Tooltip
+                  contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: number) => [v, "Mensajes"]}
+                  labelFormatter={(_, p) => {
+                    const row = p?.[0]?.payload as { dia?: string } | undefined;
+                    return row?.dia ?? "";
+                  }}
+                />
+                <Bar dataKey="total" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Salientes" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/80">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="size-4 text-primary" aria-hidden />
+              Broadcasts del período (estado)
+            </CardTitle>
+            <CardDescription>Distribución por estado en los últimos {periodoDias} días.</CardDescription>
+          </CardHeader>
+          <CardContent className="h-64 w-full min-h-[240px]">
+            {pieBroadcastData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin broadcasts en el período.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieBroadcastData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={88}
+                    label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  >
+                    {pieBroadcastData.map((_, i) => (
+                      <Cell key={pieBroadcastData[i]?.name ?? i} fill={COL_ESTADO_PIE[i % COL_ESTADO_PIE.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="border-border/80 lg:col-span-2">
@@ -173,8 +362,8 @@ export function WhatsappHomeTab() {
               Coste estimado API (broadcasts)
             </CardTitle>
             <CardDescription>
-              Suma de costes estimados al crear cada broadcast en los últimos {periodoDias} días, por
-              categoría de template. Tarifas configurables en Configuración.
+              Suma de costes estimados al crear cada broadcast en los últimos {periodoDias} días, por categoría
+              de template. Tarifas configurables en Configuración.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -185,12 +374,10 @@ export function WhatsappHomeTab() {
                 return (
                   <div
                     key={k}
-                    className="rounded-lg border border-border/60 bg-card px-3 py-2 text-sm"
+                    className="rounded-lg border border-border/60 bg-card px-3 py-2 text-sm shadow-sm"
                   >
                     <p className="text-muted-foreground">{ETIQUETA_CAT[k]}</p>
-                    <p className="text-lg font-semibold tabular-nums">
-                      USD {row.costeUsd.toFixed(4)}
-                    </p>
+                    <p className="text-lg font-semibold tabular-nums">USD {row.costeUsd.toFixed(4)}</p>
                     <p className="text-xs text-muted-foreground">
                       ~{row.enviadosOk} enviados ok · tarifa USD {unit.toFixed(4)}/msg
                     </p>
@@ -205,8 +392,8 @@ export function WhatsappHomeTab() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Los mensajes fuera de broadcast (bandeja, triggers Woo) no desglosan categoría aquí; el
-              contador de salientes del período es {data.mensajesSalientesPeriodo}.
+              Mensajes fuera de broadcast no desglosan categoría aquí; salientes del período:{" "}
+              {data.mensajesSalientesPeriodo}.
             </p>
           </CardContent>
         </Card>
@@ -229,9 +416,78 @@ export function WhatsappHomeTab() {
         </Card>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="border-border/80">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <LayoutTemplate className="size-4" aria-hidden />
+              Templates (vista Meta)
+            </CardTitle>
+            <CardDescription>Muestra parcial desde Graph API; ir a la pestaña para gestionar.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {data.templatesMetaPreview.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No se listaron plantillas (revisá token/WABA o abrí la pestaña Templates).
+              </p>
+            ) : (
+              <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
+                {data.templatesMetaPreview.map((t) => (
+                  <li
+                    key={`${t.name}-${t.language}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5"
+                  >
+                    <span className="font-medium">{t.name}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{t.language}</span>
+                      <Badge variante={badgeMetaTemplateStatus(t.status)}>{t.status}</Badge>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Button className="mt-3" variant="outline" size="sm" asChild>
+              <Link href={tabHref("templates")}>Abrir Templates Meta</Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/80">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="size-4" aria-hidden />
+              Últimas notificaciones Woo (log)
+            </CardTitle>
+            <CardDescription>Mensajes salientes cuyo cuerpo empieza con <code>[trigger</code>.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {data.notificacionesTriggerRecientes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Todavía no hay envíos con prefijo de trigger.</p>
+            ) : (
+              <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
+                {data.notificacionesTriggerRecientes.map((n) => (
+                  <li
+                    key={`${n.received_at}-${n.to_phone}-${n.body.slice(0, 24)}`}
+                    className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5"
+                  >
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(n.received_at).toLocaleString("es-UY")} → {n.to_phone}
+                    </p>
+                    <p className="line-clamp-2 font-medium">{n.body}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Button className="mt-3" variant="outline" size="sm" asChild>
+              <Link href={tabHref("notif-woo")}>Abrir Notificaciones Woo</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="border-border/80">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Accesos rápidos — últimos broadcasts</CardTitle>
+          <CardTitle className="text-base">Últimos broadcasts</CardTitle>
           <CardDescription>Notificaciones masivas por template (mismo flujo que la pestaña Broadcast).</CardDescription>
         </CardHeader>
         <CardContent>
@@ -276,6 +532,9 @@ export function WhatsappHomeTab() {
               </TableBody>
             </Table>
           )}
+          <Button className="mt-3" variant="outline" size="sm" asChild>
+            <Link href={tabHref("broadcast")}>Ir a Broadcast</Link>
+          </Button>
         </CardContent>
       </Card>
     </div>
