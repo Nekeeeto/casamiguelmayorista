@@ -5,6 +5,7 @@ import { normalizarTelefonoWaUruguay, esTelefonoUyValido } from "@/lib/telefono-
 import { WhatsappCloudApiError, listApprovedTemplates, sendTemplateMessage } from "@/lib/whatsapp-cloud-api";
 import {
   construirComponentesTemplateEnvio,
+  construirValoresTemplateCompleto,
   plantillaRequiereCabeceraMultimedia,
   resolverMediaHeaderEnvio,
 } from "@/lib/whatsapp-templates";
@@ -191,15 +192,6 @@ export async function dispararTriggerPedido({
   }
 
   const mapping = trigger.variable_mapping ?? {};
-  const variables: string[] = [];
-  const numeroVars = Object.keys(mapping)
-    .map((k) => Number(k))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const total = numeroVars.length > 0 ? Math.max(...numeroVars) : 0;
-  for (let i = 1; i <= total; i++) {
-    const campo = mapping[String(i)] ?? "";
-    variables.push(campo ? resolverValorCampo(orden, campo) : "");
-  }
 
   const configWa = await leerConfigWhatsapp();
   const templates = await listApprovedTemplates(configWa);
@@ -217,6 +209,11 @@ export async function dispararTriggerPedido({
         "El template tiene cabecera multimedia: configurá «URL cabecera» en el trigger (HTTPS público).",
     };
   }
+  const armado = construirValoresTemplateCompleto(tpl.components ?? [], mapping, (campo) =>
+    resolverValorCampo(orden, campo),
+  );
+  if (armado.error) return { ok: false, motivo: armado.error };
+  const variables = armado.valores;
   const componentes = construirComponentesTemplateEnvio(tpl, variables, media);
 
   try {
@@ -529,15 +526,6 @@ export async function dispararTriggerWiserReviewWebhook({
   }
 
   const mapping = trigger.variable_mapping ?? {};
-  const variables: string[] = [];
-  const numeroVars = Object.keys(mapping)
-    .map((k) => Number(k))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const totalVars = numeroVars.length > 0 ? Math.max(...numeroVars) : 0;
-  for (let i = 1; i <= totalVars; i++) {
-    const campo = mapping[String(i)] ?? "";
-    variables.push(campo ? resolverValorCampo(orden, campo) : "");
-  }
 
   const configWa = await leerConfigWhatsapp();
   const templates = await listApprovedTemplates(configWa);
@@ -555,6 +543,11 @@ export async function dispararTriggerWiserReviewWebhook({
         "El template tiene cabecera multimedia: configurá «URL cabecera» en el trigger (HTTPS público).",
     };
   }
+  const armado = construirValoresTemplateCompleto(tpl.components ?? [], mapping, (campo) =>
+    resolverValorCampo(orden, campo),
+  );
+  if (armado.error) return { ok: false, motivo: armado.error };
+  const variables = armado.valores;
   const componentes = construirComponentesTemplateEnvio(tpl, variables, media);
 
   try {
@@ -625,15 +618,6 @@ export async function dispararTriggerCarritoAbandonado({
   }
 
   const mapping = trigger.variable_mapping ?? {};
-  const variables: string[] = [];
-  const numeroVars = Object.keys(mapping)
-    .map((k) => Number(k))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const totalVars = numeroVars.length > 0 ? Math.max(...numeroVars) : 0;
-  for (let i = 1; i <= totalVars; i++) {
-    const campo = mapping[String(i)] ?? "";
-    variables.push(campo ? resolverValorCampo(orden, campo) : "");
-  }
 
   const configWa = await leerConfigWhatsapp();
   const templates = await listApprovedTemplates(configWa);
@@ -651,6 +635,11 @@ export async function dispararTriggerCarritoAbandonado({
         "El template tiene cabecera multimedia: configurá «URL cabecera» en el trigger (HTTPS público).",
     };
   }
+  const armado = construirValoresTemplateCompleto(tpl.components ?? [], mapping, (campo) =>
+    resolverValorCampo(orden, campo),
+  );
+  if (armado.error) return { ok: false, motivo: armado.error };
+  const variables = armado.valores;
   const componentes = construirComponentesTemplateEnvio(tpl, variables, media);
 
   try {

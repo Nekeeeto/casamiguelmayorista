@@ -8,6 +8,7 @@ import {
   WhatsappMetaTemplateEditorDialog,
   type PlantillaDuplicarPayload,
 } from "@/components/admin/whatsapp-meta-template-editor-dialog";
+import { WhatsappTemplateLivePreview } from "@/components/admin/whatsapp-template-live-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,27 +26,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { WhatsappTemplateComponent } from "@/lib/whatsapp-cloud-api";
 import { cn } from "@/lib/utils";
 import { formularioDesdeComponentesMeta } from "@/lib/whatsapp-meta-template-payload";
-
-type TemplatePlaceholder = {
-  tipo: "header" | "body" | "footer";
-  texto: string;
-  variables: number[];
-};
-
-type TemplatePlaceholders = {
-  header: TemplatePlaceholder | null;
-  body: TemplatePlaceholder | null;
-  footer: TemplatePlaceholder | null;
-  headerFormat: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION" | null;
-  totalVariables: number;
-};
-
-type TemplateComponent = {
-  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
-  format?: string;
-  text?: string;
-  buttons?: unknown[];
-};
+import type { TemplatePlaceholders } from "@/lib/whatsapp-templates";
+import { etiquetaSlot, extraerPlaceholders } from "@/lib/whatsapp-templates";
 
 type TemplateRespuesta = {
   id: string | null;
@@ -54,7 +36,7 @@ type TemplateRespuesta = {
   category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
   status: "APPROVED" | "PENDING" | "REJECTED" | "PAUSED" | "DISABLED";
   placeholders: TemplatePlaceholders;
-  components: TemplateComponent[];
+  components: WhatsappTemplateComponent[];
 };
 
 const CATEGORIA_LABEL: Record<TemplateRespuesta["category"], string> = {
@@ -99,6 +81,8 @@ export function WhatsappTemplatesTab() {
   const [duplicarDe, setDuplicarDe] = useState<PlantillaDuplicarPayload | null>(null);
   const [borrarMetaId, setBorrarMetaId] = useState<string | null>(null);
   const [borrando, setBorrando] = useState(false);
+  const [analyticsTexto, setAnalyticsTexto] = useState<string | null>(null);
+  const [analyticsCargando, setAnalyticsCargando] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -145,6 +129,42 @@ export function WhatsappTemplatesTab() {
     () => templates.find((t) => `${t.name}-${t.language}` === seleccionada) ?? null,
     [seleccionada, templates],
   );
+
+  const valoresPreviewTab = useMemo(() => {
+    if (!activa) return [];
+    const ph = extraerPlaceholders(activa.components ?? []);
+    const vals = ph.orderedSlots.map((_, i) => `Ejemplo ${i + 1}`);
+    const suf = ph.urlButtonsDinamicos.map(() => "demo-sufijo");
+    return [...vals, ...suf];
+  }, [activa]);
+
+  useEffect(() => {
+    if (!activa?.id) {
+      setAnalyticsTexto(null);
+      return;
+    }
+    let cancelado = false;
+    setAnalyticsCargando(true);
+    void fetch(
+      `/api/admin/whatsapp/templates/analytics?templateId=${encodeURIComponent(activa.id)}`,
+      { cache: "no-store" },
+    )
+      .then(async (res) => {
+        const j = (await res.json()) as { ok?: boolean; data?: unknown; error?: string };
+        if (cancelado) return;
+        if (j.ok) setAnalyticsTexto(JSON.stringify(j.data, null, 2));
+        else setAnalyticsTexto(j.error ?? `HTTP ${res.status}`);
+      })
+      .catch(() => {
+        if (!cancelado) setAnalyticsTexto("No se pudo cargar analytics.");
+      })
+      .finally(() => {
+        if (!cancelado) setAnalyticsCargando(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [activa?.id]);
 
   const abrirNueva = () => {
     setDuplicarDe(null);
@@ -323,32 +343,86 @@ export function WhatsappTemplatesTab() {
         </CardHeader>
         <CardContent>
           {activa ? (
-            <div className="space-y-3 text-sm">
-              {activa.placeholders.header ? (
-                <div className="rounded-md border border-border bg-muted/30 p-3">
-                  <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Header</p>
-                  <p className="whitespace-pre-wrap">{activa.placeholders.header.texto}</p>
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+                <div className="space-y-3">
+                  {activa.placeholders.header ? (
+                    <div className="rounded-md border border-border bg-muted/30 p-3">
+                      <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Header</p>
+                      <p className="whitespace-pre-wrap">{activa.placeholders.header.texto}</p>
+                    </div>
+                  ) : activa.placeholders.headerFormat ? (
+                    <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                      Header multimedia ({activa.placeholders.headerFormat})
+                    </div>
+                  ) : null}
+                  {activa.placeholders.body ? (
+                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                      <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Body</p>
+                      <p className="whitespace-pre-wrap">{activa.placeholders.body.texto}</p>
+                    </div>
+                  ) : null}
+                  {activa.placeholders.footer ? (
+                    <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                      <p className="mb-1 font-medium uppercase">Footer</p>
+                      <p className="whitespace-pre-wrap">{activa.placeholders.footer.texto}</p>
+                    </div>
+                  ) : null}
                 </div>
-              ) : activa.placeholders.headerFormat ? (
-                <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                  Header multimedia ({activa.placeholders.headerFormat})
+                <div className="flex flex-col items-center gap-2">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">Simulación envío</p>
+                  <WhatsappTemplateLivePreview
+                    components={activa.components ?? []}
+                    valoresEjemplo={valoresPreviewTab}
+                  />
                 </div>
-              ) : null}
-              {activa.placeholders.body ? (
-                <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-                  <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Body</p>
-                  <p className="whitespace-pre-wrap">{activa.placeholders.body.texto}</p>
-                </div>
-              ) : null}
-              {activa.placeholders.footer ? (
-                <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-                  <p className="mb-1 font-medium uppercase">Footer</p>
-                  <p className="whitespace-pre-wrap">{activa.placeholders.footer.texto}</p>
-                </div>
-              ) : null}
-              {activa.placeholders.totalVariables > 0 ? (
+              </div>
+
+              {(() => {
+                const btnComp = activa.components?.find((c) => c.type === "BUTTONS");
+                const raw = btnComp?.buttons;
+                if (!Array.isArray(raw) || raw.length === 0) return null;
+                return (
+                  <div className="rounded-md border border-border p-3">
+                    <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Botones</p>
+                    <ul className="space-y-1 text-xs text-muted-foreground">
+                      {raw.map((b, i) => {
+                        if (!b || typeof b !== "object") return null;
+                        const o = b as Record<string, unknown>;
+                        const tipo = String(o.type ?? "").toUpperCase();
+                        const txt = typeof o.text === "string" ? o.text : "—";
+                        const url = typeof o.url === "string" ? o.url : "";
+                        return (
+                          <li key={i}>
+                            <span className="font-medium text-foreground">{tipo}</span>: {txt}
+                            {url ? (
+                              <>
+                                {" "}
+                                · <code className="break-all rounded bg-muted px-1 text-[10px]">{url}</code>
+                              </>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })()}
+
+              {activa.placeholders.orderedSlots && activa.placeholders.orderedSlots.length > 0 ? (
                 <div className="rounded-md border border-border p-3">
-                  <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Variables</p>
+                  <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Parámetros (orden de envío)</p>
+                  <ul className="space-y-1">
+                    {activa.placeholders.orderedSlots.map((slot, i) => (
+                      <li key={i} className="text-xs text-muted-foreground">
+                        <code className="rounded bg-muted px-1">{etiquetaSlot(slot)}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : activa.placeholders.totalVariables > 0 ? (
+                <div className="rounded-md border border-border p-3">
+                  <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Variables (legacy)</p>
                   <ul className="space-y-1">
                     {Array.from({ length: activa.placeholders.totalVariables }, (_, i) => (
                       <li key={i} className="text-xs text-muted-foreground">
@@ -358,8 +432,29 @@ export function WhatsappTemplatesTab() {
                   </ul>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Sin variables posicionales en texto.</p>
+                <p className="text-xs text-muted-foreground">Sin variables en cabecera/body.</p>
               )}
+
+              {activa.id ? (
+                <div className="rounded-md border border-border p-3">
+                  <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+                    Analytics Meta (últimos 7 días, Cloud API)
+                  </p>
+                  <p className="mb-2 text-[11px] text-muted-foreground">
+                    Requiere analytics habilitado en la WABA y permisos del token. Si falla, revisá Business Manager o la
+                    documentación de Meta.
+                  </p>
+                  {analyticsCargando ? (
+                    <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin" /> Cargando…
+                    </p>
+                  ) : analyticsTexto ? (
+                    <pre className="max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[11px] leading-relaxed">
+                      {analyticsTexto}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Sin selección.</p>

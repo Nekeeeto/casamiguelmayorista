@@ -32,7 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { formatearTelefonoParaUi } from "@/lib/telefono-wa-uruguay";
-import { etiquetaSlot, type ParamSlot } from "@/lib/whatsapp-templates";
+import { etiquetaSlot, type ParamSlot, type TemplateUrlButtonDinamico } from "@/lib/whatsapp-templates";
 import { cn } from "@/lib/utils";
 
 type TemplatePlaceholders = {
@@ -42,6 +42,7 @@ type TemplatePlaceholders = {
   headerFormat: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION" | null;
   totalVariables: number;
   orderedSlots?: ParamSlot[];
+  urlButtonsDinamicos?: TemplateUrlButtonDinamico[];
 };
 
 type TemplateLista = {
@@ -122,6 +123,18 @@ export function WhatsappBroadcastTab() {
     [templates, templateKey],
   );
 
+  const slotCountBroadcast = useMemo(() => {
+    if (!templateSeleccionada) return 0;
+    const ph = templateSeleccionada.placeholders;
+    const sl = ph.orderedSlots ?? [];
+    return sl.length > 0 ? sl.length : ph.totalVariables;
+  }, [templateSeleccionada]);
+
+  const urlButtonsBroadcast = useMemo(
+    () => templateSeleccionada?.placeholders.urlButtonsDinamicos ?? [],
+    [templateSeleccionada],
+  );
+
   const cargarTemplates = useCallback(async () => {
     setCargandoTemplates(true);
     try {
@@ -179,7 +192,11 @@ export function WhatsappBroadcastTab() {
   useEffect(() => {
     if (templateSeleccionada) {
       setVariables((prev) => {
-        const total = templateSeleccionada.placeholders.totalVariables;
+        const ph = templateSeleccionada.placeholders;
+        const slotCount =
+          ph.orderedSlots && ph.orderedSlots.length > 0 ? ph.orderedSlots.length : ph.totalVariables;
+        const urlN = ph.urlButtonsDinamicos?.length ?? 0;
+        const total = slotCount + urlN;
         const nuevo = [...prev];
         nuevo.length = total;
         for (let i = 0; i < total; i++) {
@@ -431,11 +448,11 @@ export function WhatsappBroadcastTab() {
             ) : null}
           </div>
 
-          {templateSeleccionada && templateSeleccionada.placeholders.totalVariables > 0 ? (
+          {templateSeleccionada && slotCountBroadcast + urlButtonsBroadcast.length > 0 ? (
             <div className="space-y-2 rounded-md border border-border p-3">
               <p className="text-sm font-medium">Variables del template</p>
               <div className="grid gap-2 sm:grid-cols-2">
-                {Array.from({ length: templateSeleccionada.placeholders.totalVariables }, (_, i) => {
+                {Array.from({ length: slotCountBroadcast }, (_, i) => {
                   const slots = templateSeleccionada.placeholders.orderedSlots;
                   const etiqueta =
                     slots && slots[i] ? etiquetaSlot(slots[i]) : `{{${i + 1}}}`;
@@ -460,6 +477,29 @@ export function WhatsappBroadcastTab() {
                       placeholder={i === 0 && fuente === "contactos" && usarNombreComoVariable1 ? "Valor por defecto si no hay nombre" : "Valor"}
                     />
                   </div>
+                  );
+                })}
+                {urlButtonsBroadcast.map((btn, j) => {
+                  const i = slotCountBroadcast + j;
+                  return (
+                    <div key={`btn-url-${btn.indiceEnPlantilla}`} className="space-y-1 sm:col-span-2">
+                      <Label htmlFor={`wa-var-url-${i}`}>
+                        Sufijo URL — {btn.titulo}{" "}
+                        <span className="text-xs font-normal text-muted-foreground">(Meta concatena a la URL base)</span>
+                      </Label>
+                      <Input
+                        id={`wa-var-url-${i}`}
+                        value={variables[i] ?? ""}
+                        onChange={(event) =>
+                          setVariables((prev) => {
+                            const nuevo = [...prev];
+                            nuevo[i] = event.target.value;
+                            return nuevo;
+                          })
+                        }
+                        placeholder="Ej. slug o path que completá la URL del botón"
+                      />
+                    </div>
                   );
                 })}
               </div>

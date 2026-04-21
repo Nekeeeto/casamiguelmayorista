@@ -19,6 +19,14 @@ export type ComponentePlaceholder = {
   variables: number[];
 };
 
+/** Botón URL cuya `url` en la plantilla incluye `{{…}}` — al enviar hace falta el sufijo en `components.button`. */
+export type TemplateUrlButtonDinamico = {
+  /** Índice del botón en el componente BUTTONS (string en API Meta: "0", "1", …). */
+  indiceEnPlantilla: number;
+  titulo: string;
+  urlEnPlantilla: string;
+};
+
 export type TemplatePlaceholders = {
   header: ComponentePlaceholder | null;
   body: ComponentePlaceholder | null;
@@ -28,6 +36,9 @@ export type TemplatePlaceholders = {
   totalVariables: number;
   /** Mismo orden que los inputs del broadcast; Meta exige `parameter_name` si `kind === "named"`. */
   orderedSlots: ParamSlot[];
+  /** Cantidad de slots en HEADER tipo TEXT (para repartir `valores` header/body). */
+  headerSlotCount: number;
+  urlButtonsDinamicos: TemplateUrlButtonDinamico[];
 };
 
 function variablesDeTextoSoloDigitos(texto: string): number[] {
@@ -74,6 +85,31 @@ function textoParametroValor(val: string, slot: ParamSlot): WhatsappSendParamete
   return { type: "text", text: t };
 }
 
+function normalizarTipoBoton(t: unknown): string {
+  return String(t ?? "").toUpperCase();
+}
+
+/**
+ * Botones URL con al menos un `{{` en `url` requieren parámetro de texto al enviar (sufijo).
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates
+ */
+export function extraerBotonesUrlDinamicos(components: WhatsappTemplateComponent[]): TemplateUrlButtonDinamico[] {
+  const btnComp = components.find((c) => c.type === "BUTTONS");
+  const raw = btnComp?.buttons;
+  if (!Array.isArray(raw)) return [];
+  const out: TemplateUrlButtonDinamico[] = [];
+  raw.forEach((b, indiceEnPlantilla) => {
+    if (!b || typeof b !== "object") return;
+    const o = b as Record<string, unknown>;
+    if (normalizarTipoBoton(o.type) !== "URL") return;
+    const url = typeof o.url === "string" ? o.url : "";
+    if (!url.includes("{{")) return;
+    const titulo = typeof o.text === "string" && o.text.trim() ? o.text.trim() : `URL ${indiceEnPlantilla + 1}`;
+    out.push({ indiceEnPlantilla, titulo, urlEnPlantilla: url });
+  });
+  return out;
+}
+
 export function extraerPlaceholders(components: WhatsappTemplateComponent[]): TemplatePlaceholders {
   const header = components.find((c) => c.type === "HEADER");
   const body = components.find((c) => c.type === "BODY");
@@ -102,6 +138,8 @@ export function extraerPlaceholders(components: WhatsappTemplateComponent[]): Te
         ? Math.max(...legacyDigits)
         : 0;
 
+  const urlButtonsDinamicos = extraerBotonesUrlDinamicos(components);
+
   return {
     header: headerComp,
     body: bodyComp,
@@ -109,6 +147,8 @@ export function extraerPlaceholders(components: WhatsappTemplateComponent[]): Te
     headerFormat,
     totalVariables,
     orderedSlots,
+    headerSlotCount: headerSlots.length,
+    urlButtonsDinamicos,
   };
 }
 
@@ -130,36 +170,58 @@ export function normalizarTemplate(t: WhatsappTemplate): TemplateNormalizado {
   };
 }
 
-/**
- * True si Meta exige enviar parámetro de cabecera multimedia al disparar el template.
- */
-export function plantillaRequiereCabeceraMultimedia(
-  template: Pick<WhatsappTemplate, "components">,
-): boolean {
-  const headerComp = template.components?.find((c) => c.type === "HEADER");
-  const fmt = headerComp?.format;
-  return fmt != null && ["IMAGE", "VIDEO", "DOCUMENT"].includes(fmt);
+/** Clave en `variable_mapping` para el sufijo del botón URL dinámico (índice en plantilla Meta). */
+export function claveMapeoBotonUrl(indiceEnPlantilla: number): string {
+  return `btn_url_${indiceEnPlantilla}`;
 }
 
 /**
- * Convierte URL guardada en el payload `components` del envío (solo si el template tiene header multimedia).
+ * Resuelve valores en orden `orderedSlots` usando claves `String(slot.index)` o `slot.name` (nombrados).
  */
-export function resolverMediaHeaderEnvio(
-  template: Pick<WhatsappTemplate, "components">,
-  url: string | null | undefined,
-): MediaHeaderEnvio {
-  const trimmed = typeof url === "string" ? url.trim() : "";
-  if (!trimmed) return null;
-  const headerComp = template.components?.find((c) => c.type === "HEADER");
-  const fmt = headerComp?.format;
-  if (fmt === "IMAGE") return { tipo: "image", link: trimmed };
-  if (fmt === "VIDEO") return { tipo: "video", link: trimmed };
-  if (fmt === "DOCUMENT") return { tipo: "document", link: trimmed, filename: "adjunto" };
-  return null;
+export function valoresSlotsDesdeMapeo(
+  placeholders: Pick<TemplatePlaceholders, "orderedSlots">,
+  mapping: Record<string, string>,
+  resolver: (campo: string) => string,
+): string[] {
+  return placeholders.orderedSlots.map((slot) => {
+    const key = slot.kind === "positional" ? String(slot.index) : slot.name;
+    const campo = mapping[key]?.trim() ? mapping[key] : "";
+    return campo ? resolver(campo.trim()) : "";
+  });
+}
+
+export function sufijosBotonUrlDesdeMapeo(
+  urlButtons: readonly TemplateUrlButtonDinamico[],
+  mapping: Record<string, string>,
+  resolver: (campo: string) => string,
+): string[] {
+  return urlButtons.map((b) => {
+    const campo = mapping[claveMapeoBotonUrl(b.indiceEnPlantilla)]?.trim() ?? "";
+    return campo ? resolver(campo) : "";
+  });
+}
+
+export function construirValoresTemplateCompleto(
+  components: WhatsappTemplateComponent[],
+  mapping: Record<string, string>,
+  resolver: (campo: string) => string,
+): { valores: string[]; error: string | null } {
+  const ph = extraerPlaceholders(components);
+  const vals = valoresSlotsDesdeMapeo(ph, mapping, resolver);
+  const suf = sufijosBotonUrlDesdeMapeo(ph.urlButtonsDinamicos, mapping, resolver);
+  for (let j = 0; j < ph.urlButtonsDinamicos.length; j++) {
+    if (!suf[j]?.trim()) {
+      return {
+        valores: [],
+        error: `Falta mapeo del botón URL «${ph.urlButtonsDinamicos[j]?.titulo ?? "CTA"}» (${claveMapeoBotonUrl(ph.urlButtonsDinamicos[j]?.indiceEnPlantilla ?? 0)} → campo de datos).`,
+      };
+    }
+  }
+  return { valores: [...vals, ...suf], error: null };
 }
 
 /**
- * Arma `components` para POST template: respeta header multimedia vs texto, body y footer, y nombres de parámetro Meta.
+ * `valores` = valores de header+body en orden `orderedSlots`, concatenados con sufijos URL en orden `urlButtonsDinamicos`.
  */
 export function construirComponentesTemplateEnvio(
   template: Pick<WhatsappTemplate, "components">,
@@ -167,6 +229,12 @@ export function construirComponentesTemplateEnvio(
   mediaHeader: MediaHeaderEnvio,
 ): WhatsappSendComponent[] {
   const componentsMeta = template.components ?? [];
+  const ph = extraerPlaceholders(componentsMeta);
+  const slotN = ph.orderedSlots.length;
+  const urlBtns = ph.urlButtonsDinamicos;
+  const valoresSlots = valores.slice(0, slotN);
+  const sufijos = valores.slice(slotN, slotN + urlBtns.length);
+
   const headerComp = componentsMeta.find((c) => c.type === "HEADER");
   const bodyComp = componentsMeta.find((c) => c.type === "BODY");
 
@@ -195,7 +263,7 @@ export function construirComponentesTemplateEnvio(
   } else if (headerComp?.format === "TEXT" && headerComp.text) {
     const slots = extraerSlotsDeTexto(headerComp.text);
     if (slots.length) {
-      const params = slots.map((slot) => textoParametroValor(valores[i++] ?? "", slot));
+      const params = slots.map((slot) => textoParametroValor(valoresSlots[i++] ?? "", slot));
       out.push({ type: "header", parameters: params });
     }
   }
@@ -203,12 +271,69 @@ export function construirComponentesTemplateEnvio(
   if (bodyComp?.text) {
     const slots = extraerSlotsDeTexto(bodyComp.text);
     if (slots.length) {
-      const params = slots.map((slot) => textoParametroValor(valores[i++] ?? "", slot));
+      const params = slots.map((slot) => textoParametroValor(valoresSlots[i++] ?? "", slot));
       out.push({ type: "body", parameters: params });
     }
   }
 
+  urlBtns.forEach((btn, j) => {
+    const suffix = (sufijos[j] ?? "").trim();
+    if (!suffix) return;
+    out.push({
+      type: "button",
+      sub_type: "url",
+      index: String(btn.indiceEnPlantilla),
+      parameters: [{ type: "text", text: suffix }],
+    });
+  });
+
   return out;
+}
+
+/** Base URL estática antes del placeholder final (preview). */
+export function baseUrlBotonDinamico(urlEnPlantilla: string): string {
+  return urlEnPlantilla.replace(/\{\{\s*[^}]+\s*\}\}\s*$/u, "").trim();
+}
+
+/**
+ * Aplica valores a un texto con `{{n}}` o `{{nombre}}` según slots del fragmento.
+ */
+export function aplicarSlotsATexto(texto: string, slots: ParamSlot[], valores: string[]): string {
+  let result = texto;
+  slots.forEach((slot, idx) => {
+    const tag = etiquetaSlot(slot);
+    const val = valores[idx] ?? "";
+    result = result.split(tag).join(val);
+  });
+  return result;
+}
+
+/**
+ * True si Meta exige enviar parámetro de cabecera multimedia al disparar el template.
+ */
+export function plantillaRequiereCabeceraMultimedia(
+  template: Pick<WhatsappTemplate, "components">,
+): boolean {
+  const headerComp = template.components?.find((c) => c.type === "HEADER");
+  const fmt = headerComp?.format;
+  return fmt != null && ["IMAGE", "VIDEO", "DOCUMENT"].includes(fmt);
+}
+
+/**
+ * Convierte URL guardada en el payload `components` del envío (solo si el template tiene header multimedia).
+ */
+export function resolverMediaHeaderEnvio(
+  template: Pick<WhatsappTemplate, "components">,
+  url: string | null | undefined,
+): MediaHeaderEnvio {
+  const trimmed = typeof url === "string" ? url.trim() : "";
+  if (!trimmed) return null;
+  const headerComp = template.components?.find((c) => c.type === "HEADER");
+  const fmt = headerComp?.format;
+  if (fmt === "IMAGE") return { tipo: "image", link: trimmed };
+  if (fmt === "VIDEO") return { tipo: "video", link: trimmed };
+  if (fmt === "DOCUMENT") return { tipo: "document", link: trimmed, filename: "adjunto" };
+  return null;
 }
 
 /**

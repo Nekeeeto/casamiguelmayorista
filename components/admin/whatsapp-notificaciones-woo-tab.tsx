@@ -34,13 +34,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { WhatsappTemplateLivePreview } from "@/components/admin/whatsapp-template-live-preview";
 import {
   CAMPOS_CARRITO_ABANDONADO,
   CAMPOS_REVIEW_WEBHOOK,
+  normalizarPayloadCarritoAbandonado,
+  normalizarPayloadWiserReview,
   TRIGGER_KEYS_PEDIDO,
+  resolverValorCampo,
   type TriggerKey,
   type TriggerKeyPedido,
 } from "@/lib/whatsapp-woo-triggers";
+import type { WhatsappTemplateComponent } from "@/lib/whatsapp-cloud-api";
+import { claveMapeoBotonUrl, etiquetaSlot, type ParamSlot } from "@/lib/whatsapp-templates";
 import { normalizarSlugEstadoPedidoWoo, type OpcionEstadoPedidoWoo } from "@/lib/woo-order-statuses-catalog";
 
 type Trigger = {
@@ -57,7 +63,15 @@ type Trigger = {
 type TemplateLista = {
   name: string;
   language: string;
-  placeholders: { totalVariables: number; headerFormat?: string | null };
+  id?: string | null;
+  components?: WhatsappTemplateComponent[];
+  placeholders: {
+    totalVariables: number;
+    headerFormat?: string | null;
+    orderedSlots?: ParamSlot[];
+    urlButtonsDinamicos?: { indiceEnPlantilla: number; titulo: string; urlEnPlantilla: string }[];
+    headerSlotCount?: number;
+  };
 };
 
 function plantillaUsaCabeceraMultimedia(t: TemplateLista | undefined): boolean {
@@ -320,7 +334,6 @@ export function WhatsappNotificacionesWooTab() {
           const templateSeleccionada = templates.find(
             (tpl) => tpl.name === t.template_name && tpl.language === t.template_language,
           );
-          const totalVars = templateSeleccionada?.placeholders.totalVariables ?? 0;
           const keyPedido = cfg.key as TriggerKeyPedido;
           return (
             <TriggerCardPedido
@@ -331,7 +344,6 @@ export function WhatsappNotificacionesWooTab() {
               opcionesEstadosWoo={estadosWoo}
               templates={templates}
               templateSeleccionada={templateSeleccionada}
-              totalVars={totalVars}
               guardando={guardandoKey === t.trigger_key}
               onActualizar={(patch) => actualizarTrigger(t.trigger_key, patch)}
               testOrderId={testOrderIds[keyPedido]}
@@ -403,7 +415,6 @@ export function WhatsappNotificacionesWooTab() {
             const templateSeleccionada = templates.find(
               (tpl) => tpl.name === t.template_name && tpl.language === t.template_language,
             );
-            const totalVars = templateSeleccionada?.placeholders.totalVariables ?? 0;
 
             return (
               <div key={cfg.key} className="flex flex-col gap-2">
@@ -425,7 +436,6 @@ export function WhatsappNotificacionesWooTab() {
                   opcionesEstadosWoo={estadosWoo}
                   templates={templates}
                   templateSeleccionada={templateSeleccionada}
-                  totalVars={totalVars}
                   guardando={guardandoKey === t.trigger_key}
                   onActualizar={(patch) => actualizarTrigger(t.trigger_key, patch)}
                   testOrderId={testOrderIds[keyPedido]}
@@ -467,7 +477,6 @@ type TriggerCardPedidoProps = {
   opcionesEstadosWoo: OpcionEstadoPedidoWoo[];
   templates: TemplateLista[];
   templateSeleccionada?: TemplateLista;
-  totalVars: number;
   guardando: boolean;
   onActualizar: (patch: Partial<Trigger>) => void;
   testOrderId: string;
@@ -477,6 +486,29 @@ type TriggerCardPedidoProps = {
   opcionesMapeo?: ReadonlyArray<{ key: string; label: string }>;
 };
 
+function ordenEjemploParaPreview(triggerKey: TriggerKeyPedido): Record<string, unknown> {
+  if (triggerKey === "wiser_review_request") {
+    return normalizarPayloadWiserReview({
+      customer_number: "+59899111222",
+      customer_name: "María Demo",
+      product_name: "Producto de ejemplo",
+      product_review_url: "https://demo.local/r/abc123",
+      order_id: "1001",
+    });
+  }
+  return {
+    id: 1001,
+    number: "1001",
+    billing: { first_name: "María", last_name: "Demo", phone: "+59899111222", city: "Montevideo" },
+    shipping: { city: "Montevideo", address_1: "Ejemplo 123", phone: "+59899111222" },
+    status: "processing",
+    total: "1250",
+    currency: "UYU",
+    tracking_number: "",
+    link_seguimiento: "https://demo.local/seguimiento",
+  };
+}
+
 function TriggerCardPedido({
   icon: Icon,
   trigger,
@@ -484,7 +516,6 @@ function TriggerCardPedido({
   opcionesEstadosWoo,
   templates,
   templateSeleccionada,
-  totalVars,
   guardando,
   onActualizar,
   testOrderId,
@@ -493,6 +524,15 @@ function TriggerCardPedido({
   opcionesMapeo: opcionesMapeoProp,
 }: TriggerCardPedidoProps) {
   const opcionesMapeo = opcionesMapeoProp ?? CAMPOS_PEDIDO;
+  const slotsRaw = templateSeleccionada?.placeholders.orderedSlots ?? [];
+  const totalLegacy = templateSeleccionada?.placeholders.totalVariables ?? 0;
+  const slots =
+    slotsRaw.length > 0
+      ? slotsRaw
+      : Array.from({ length: totalLegacy }, (_, i) => ({ kind: "positional" as const, index: i + 1 }));
+  const urlBtns = templateSeleccionada?.placeholders.urlButtonsDinamicos ?? [];
+  const hayMapeoTemplate = slots.length > 0 || urlBtns.length > 0;
+
   const slugsServidor = trigger.woo_status_slugs ?? [];
   const [disparoModo, setDisparoModo] = useState<"auto" | "custom">(() =>
     slugsServidor.length > 0 ? "custom" : "auto",
@@ -504,6 +544,21 @@ function TriggerCardPedido({
   useEffect(() => {
     setMapping(trigger.variable_mapping ?? {});
   }, [trigger.variable_mapping]);
+
+  const valoresPreview = useMemo(() => {
+    const orden = ordenEjemploParaPreview(trigger.trigger_key);
+    const vals = slots.map((slot) => {
+      const key = slot.kind === "positional" ? String(slot.index) : slot.name;
+      const campo = mapping[key]?.trim() ?? "";
+      return campo ? resolverValorCampo(orden, campo) : `(${etiquetaSlot(slot)})`;
+    });
+    const suf = urlBtns.map((btn) => {
+      const k = claveMapeoBotonUrl(btn.indiceEnPlantilla);
+      const campo = mapping[k]?.trim() ?? "";
+      return campo ? resolverValorCampo(orden, campo) : "(sufijo URL)";
+    });
+    return [...vals, ...suf];
+  }, [trigger.trigger_key, slots, urlBtns, mapping]);
 
   useEffect(() => {
     const s = trigger.woo_status_slugs ?? [];
@@ -712,26 +767,57 @@ function TriggerCardPedido({
           </div>
         ) : null}
 
-        {totalVars > 0 ? (
+        {hayMapeoTemplate ? (
           <div className="rounded-md border border-border p-3">
-            <p className="mb-2 text-sm font-medium">Mapeo de variables</p>
+            <p className="mb-2 text-sm font-medium">Mapeo según template</p>
             <div className="grid gap-2 sm:grid-cols-2">
-              {Array.from({ length: totalVars }, (_, i) => {
-                const idx = String(i + 1);
+              {slots.map((slot) => {
+                const mapKey = slot.kind === "positional" ? String(slot.index) : slot.name;
+                const label = etiquetaSlot(slot);
                 return (
-                  <div key={idx} className="space-y-1">
+                  <div key={mapKey} className="space-y-1">
                     <Label>
-                      {`{{${idx}}}`} →
+                      {label} →
                     </Label>
                     <Select
-                      value={mapping[idx] ?? ""}
+                      value={mapping[mapKey] ?? ""}
                       onValueChange={(v) =>
-                        setMapping((prev) => ({ ...prev, [idx]: v }))
+                        setMapping((prev) => ({ ...prev, [mapKey]: v }))
                       }
                       disabled={guardando}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Elegí un campo del pedido…" />
+                        <SelectValue placeholder="Elegí un campo…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {opcionesMapeo.map((c) => (
+                          <SelectItem key={c.key} value={c.key}>
+                            {c.label} <code className="ml-1 text-xs text-muted-foreground">{c.key}</code>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              })}
+              {urlBtns.map((btn) => {
+                const mapKey = claveMapeoBotonUrl(btn.indiceEnPlantilla);
+                return (
+                  <div key={mapKey} className="space-y-1 sm:col-span-2">
+                    <Label>
+                      Botón URL «{btn.titulo}» ({mapKey}) →
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Sufijo que Meta concatena a la URL base (p. ej. slug de reseña). Base en plantilla:{" "}
+                      <code className="break-all rounded bg-muted px-1 text-[10px]">{btn.urlEnPlantilla}</code>
+                    </p>
+                    <Select
+                      value={mapping[mapKey] ?? ""}
+                      onValueChange={(v) => setMapping((prev) => ({ ...prev, [mapKey]: v }))}
+                      disabled={guardando}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Campo con el sufijo o path…" />
                       </SelectTrigger>
                       <SelectContent>
                         {opcionesMapeo.map((c) => (
@@ -751,6 +837,17 @@ function TriggerCardPedido({
                 Guardar mapeo
               </Button>
             </div>
+          </div>
+        ) : null}
+
+        {templateSeleccionada?.components && hayMapeoTemplate ? (
+          <div className="space-y-2 rounded-md border border-border/80 bg-muted/10 p-3">
+            <p className="text-sm font-medium">Preview en acción (ejemplo)</p>
+            <WhatsappTemplateLivePreview
+              components={templateSeleccionada.components}
+              valoresEjemplo={valoresPreview}
+              headerMediaUrl={trigger.template_header_media_url}
+            />
           </div>
         ) : null}
 
@@ -821,13 +918,45 @@ function CarritoAbandonadoDialog({
   const templateKey = templateSeleccionada
     ? `${templateSeleccionada.name}::${templateSeleccionada.language}`
     : "";
-  const totalVars = templateSeleccionada?.placeholders.totalVariables ?? 0;
+  const slotsRaw = templateSeleccionada?.placeholders.orderedSlots ?? [];
+  const totalLegacy = templateSeleccionada?.placeholders.totalVariables ?? 0;
+  const slots =
+    slotsRaw.length > 0
+      ? slotsRaw
+      : Array.from({ length: totalLegacy }, (_, i) => ({ kind: "positional" as const, index: i + 1 }));
+  const urlBtns = templateSeleccionada?.placeholders.urlButtonsDinamicos ?? [];
+  const hayMapeoTemplate = slots.length > 0 || urlBtns.length > 0;
   const cabeceraMultimedia = plantillaUsaCabeceraMultimedia(templateSeleccionada);
 
   const cambioPendiente = useMemo(
     () => JSON.stringify(mapping) !== JSON.stringify(trigger?.variable_mapping ?? {}),
     [mapping, trigger?.variable_mapping],
   );
+
+  const ordenPreviewCarrito = useMemo(() => {
+    const p: Record<string, string> = {};
+    p.phone = testPhone.trim() || "+59899111222";
+    if (testNombre.trim()) p.first_name = testNombre.trim();
+    if (testUrl.trim()) p.cart_url = testUrl.trim();
+    if (testTotal.trim()) p.total = testTotal.trim();
+    if (testMoneda.trim()) p.currency = testMoneda.trim();
+    return normalizarPayloadCarritoAbandonado(p);
+  }, [testPhone, testNombre, testUrl, testTotal, testMoneda]);
+
+  const valoresPreviewCarrito = useMemo(() => {
+    const orden = ordenPreviewCarrito;
+    const vals = slots.map((slot) => {
+      const mapKey = slot.kind === "positional" ? String(slot.index) : slot.name;
+      const campo = mapping[mapKey]?.trim() ?? "";
+      return campo ? resolverValorCampo(orden, campo) : `(${etiquetaSlot(slot)})`;
+    });
+    const suf = urlBtns.map((btn) => {
+      const k = claveMapeoBotonUrl(btn.indiceEnPlantilla);
+      const campo = mapping[k]?.trim() ?? "";
+      return campo ? resolverValorCampo(orden, campo) : "(sufijo URL)";
+    });
+    return [...vals, ...suf];
+  }, [ordenPreviewCarrito, slots, urlBtns, mapping]);
 
   const guardarMapping = () => {
     onActualizar({ variable_mapping: mapping });
@@ -970,22 +1099,49 @@ function CarritoAbandonadoDialog({
               </div>
             ) : null}
 
-            {totalVars > 0 ? (
+            {hayMapeoTemplate ? (
               <div className="rounded-md border border-border p-3">
-                <p className="mb-2 text-sm font-medium">Mapeo de variables → payload normalizado</p>
+                <p className="mb-2 text-sm font-medium">Mapeo según template → payload normalizado</p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {Array.from({ length: totalVars }, (_, i) => {
-                    const idx = String(i + 1);
+                  {slots.map((slot) => {
+                    const mapKey = slot.kind === "positional" ? String(slot.index) : slot.name;
                     return (
-                      <div key={idx} className="space-y-1">
-                        <Label>{`{{${idx}}}`} →</Label>
+                      <div key={mapKey} className="space-y-1">
+                        <Label>{etiquetaSlot(slot)} →</Label>
                         <Select
-                          value={mapping[idx] ?? ""}
-                          onValueChange={(v) => setMapping((prev) => ({ ...prev, [idx]: v }))}
+                          value={mapping[mapKey] ?? ""}
+                          onValueChange={(v) => setMapping((prev) => ({ ...prev, [mapKey]: v }))}
                           disabled={guardando}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Campo…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CAMPOS_CARRITO_ABANDONADO.map((c) => (
+                              <SelectItem key={c.key} value={c.key}>
+                                {c.label}{" "}
+                                <code className="ml-1 text-xs text-muted-foreground">{c.key}</code>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                  {urlBtns.map((btn) => {
+                    const mapKey = claveMapeoBotonUrl(btn.indiceEnPlantilla);
+                    return (
+                      <div key={mapKey} className="space-y-1 sm:col-span-2">
+                        <Label>
+                          Botón URL «{btn.titulo}» ({mapKey}) →
+                        </Label>
+                        <Select
+                          value={mapping[mapKey] ?? ""}
+                          onValueChange={(v) => setMapping((prev) => ({ ...prev, [mapKey]: v }))}
+                          disabled={guardando}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Campo sufijo…" />
                           </SelectTrigger>
                           <SelectContent>
                             {CAMPOS_CARRITO_ABANDONADO.map((c) => (
@@ -1006,6 +1162,17 @@ function CarritoAbandonadoDialog({
                     Guardar mapeo
                   </Button>
                 </div>
+              </div>
+            ) : null}
+
+            {templateSeleccionada?.components && hayMapeoTemplate ? (
+              <div className="space-y-2 rounded-md border border-border/80 bg-muted/10 p-3">
+                <p className="text-sm font-medium">Preview en acción (valores del formulario de prueba)</p>
+                <WhatsappTemplateLivePreview
+                  components={templateSeleccionada.components}
+                  valoresEjemplo={valoresPreviewCarrito}
+                  headerMediaUrl={trigger.template_header_media_url}
+                />
               </div>
             ) : null}
 
@@ -1119,13 +1286,46 @@ function WiserReviewWebhookDialog({
   const templateKey = templateSeleccionada
     ? `${templateSeleccionada.name}::${templateSeleccionada.language}`
     : "";
-  const totalVars = templateSeleccionada?.placeholders.totalVariables ?? 0;
+  const slotsRaw = templateSeleccionada?.placeholders.orderedSlots ?? [];
+  const totalLegacy = templateSeleccionada?.placeholders.totalVariables ?? 0;
+  const slots =
+    slotsRaw.length > 0
+      ? slotsRaw
+      : Array.from({ length: totalLegacy }, (_, i) => ({ kind: "positional" as const, index: i + 1 }));
+  const urlBtns = templateSeleccionada?.placeholders.urlButtonsDinamicos ?? [];
+  const hayMapeoTemplate = slots.length > 0 || urlBtns.length > 0;
   const cabeceraMultimedia = plantillaUsaCabeceraMultimedia(templateSeleccionada);
 
   const cambioPendiente = useMemo(
     () => JSON.stringify(mapping) !== JSON.stringify(trigger?.variable_mapping ?? {}),
     [mapping, trigger?.variable_mapping],
   );
+
+  const ordenPreviewWiser = useMemo(() => {
+    const p: Record<string, string | number> = {};
+    p.customer_number = testPhone.trim() || "+59899111222";
+    if (testNombre.trim()) p.customer_name = testNombre.trim();
+    if (testReviewUrl.trim()) p.product_review_url = testReviewUrl.trim();
+    if (testProductName.trim()) p.product_name = testProductName.trim();
+    const oid = Number(testOrderId.trim());
+    if (Number.isFinite(oid) && oid > 0) p.order_id = oid;
+    return normalizarPayloadWiserReview(p);
+  }, [testPhone, testNombre, testReviewUrl, testProductName, testOrderId]);
+
+  const valoresPreviewWiser = useMemo(() => {
+    const orden = ordenPreviewWiser;
+    const vals = slots.map((slot) => {
+      const mapKey = slot.kind === "positional" ? String(slot.index) : slot.name;
+      const campo = mapping[mapKey]?.trim() ?? "";
+      return campo ? resolverValorCampo(orden, campo) : `(${etiquetaSlot(slot)})`;
+    });
+    const suf = urlBtns.map((btn) => {
+      const k = claveMapeoBotonUrl(btn.indiceEnPlantilla);
+      const campo = mapping[k]?.trim() ?? "";
+      return campo ? resolverValorCampo(orden, campo) : "(sufijo URL)";
+    });
+    return [...vals, ...suf];
+  }, [ordenPreviewWiser, slots, urlBtns, mapping]);
 
   const guardarMapping = () => {
     onActualizar({ variable_mapping: mapping });
@@ -1288,18 +1488,49 @@ function WiserReviewWebhookDialog({
               </div>
             ) : null}
 
-            {totalVars > 0 ? (
+            {hayMapeoTemplate ? (
               <div className="rounded-md border border-border p-3">
-                <p className="mb-2 text-sm font-medium">Mapeo de variables (WiserReview + pedido Woo)</p>
+                <p className="mb-2 text-sm font-medium">Mapeo según template (WiserReview + pedido Woo)</p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {Array.from({ length: totalVars }, (_, i) => {
-                    const idx = String(i + 1);
+                  {slots.map((slot) => {
+                    const mapKey = slot.kind === "positional" ? String(slot.index) : slot.name;
                     return (
-                      <div key={idx} className="space-y-1">
-                        <Label>{`{{${idx}}}`} →</Label>
+                      <div key={mapKey} className="space-y-1">
+                        <Label>{etiquetaSlot(slot)} →</Label>
                         <Select
-                          value={mapping[idx] ?? ""}
-                          onValueChange={(v) => setMapping((prev) => ({ ...prev, [idx]: v }))}
+                          value={mapping[mapKey] ?? ""}
+                          onValueChange={(v) => setMapping((prev) => ({ ...prev, [mapKey]: v }))}
+                          disabled={guardando}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Campo…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CAMPOS_REVIEW_WEBHOOK.map((c) => (
+                              <SelectItem key={c.key} value={c.key}>
+                                {c.label}{" "}
+                                <code className="ml-1 text-xs text-muted-foreground">{c.key}</code>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                  {urlBtns.map((btn) => {
+                    const mapKey = claveMapeoBotonUrl(btn.indiceEnPlantilla);
+                    return (
+                      <div key={mapKey} className="space-y-1 sm:col-span-2">
+                        <Label>
+                          Botón URL «{btn.titulo}» ({mapKey}) →
+                        </Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Sufijo URL (p. ej. path desde <code className="rounded bg-muted px-0.5">product_review_url</code>
+                          ).
+                        </p>
+                        <Select
+                          value={mapping[mapKey] ?? ""}
+                          onValueChange={(v) => setMapping((prev) => ({ ...prev, [mapKey]: v }))}
                           disabled={guardando}
                         >
                           <SelectTrigger>
@@ -1324,6 +1555,17 @@ function WiserReviewWebhookDialog({
                     Guardar mapeo
                   </Button>
                 </div>
+              </div>
+            ) : null}
+
+            {templateSeleccionada?.components && hayMapeoTemplate ? (
+              <div className="space-y-2 rounded-md border border-border/80 bg-muted/10 p-3">
+                <p className="text-sm font-medium">Preview en acción (formulario de prueba)</p>
+                <WhatsappTemplateLivePreview
+                  components={templateSeleccionada.components}
+                  valoresEjemplo={valoresPreviewWiser}
+                  headerMediaUrl={trigger.template_header_media_url}
+                />
               </div>
             ) : null}
 

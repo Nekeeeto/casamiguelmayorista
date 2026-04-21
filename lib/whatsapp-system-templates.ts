@@ -1,7 +1,7 @@
 import type { WhatsappConfigResuelto } from "@/lib/whatsapp-config";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { listApprovedTemplates, sendTemplateMessage, sendTextMessage } from "@/lib/whatsapp-cloud-api";
-import { construirComponentesTemplateEnvio } from "@/lib/whatsapp-templates";
+import { construirComponentesTemplateEnvio, extraerPlaceholders } from "@/lib/whatsapp-templates";
 
 export type SystemTemplateKey =
   | "opt_out_confirmacion"
@@ -147,7 +147,11 @@ export async function enviarConfirmacionKeyword(
     return;
   }
 
-  const valores = tpl.template_parameters ?? [];
+  const valoresBase = tpl.template_parameters ?? [];
+  const ph = extraerPlaceholders(meta.components ?? []);
+  const need = ph.orderedSlots.length + ph.urlButtonsDinamicos.length;
+  const valores = [...valoresBase];
+  while (valores.length < need) valores.push("");
   const components = construirComponentesTemplateEnvio(meta, valores, null);
   await sendTemplateMessage(telefono, meta.name, meta.language, components, config);
 }

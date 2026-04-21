@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { Suspense, useMemo } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Inbox,
   LayoutDashboard,
@@ -24,6 +24,7 @@ import { WhatsappNotificacionesWooTab } from "@/components/admin/whatsapp-notifi
 import { WhatsappSystemTemplatesTab } from "@/components/admin/whatsapp-system-templates-tab";
 import { WhatsappTemplatesTab } from "@/components/admin/whatsapp-templates-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 const TAB_VALUES = [
   "inicio",
@@ -63,6 +64,29 @@ function WhatsappMarketingPanelInner() {
     return t && isTabValue(t) ? t : "inicio";
   }, [searchParams]);
 
+  const [bandejaChatCount, setBandejaChatCount] = useState<number | null>(null);
+
+  const refrescarConteoBandeja = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/whatsapp/messages/inbox", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { conversaciones: unknown[] };
+      setBandejaChatCount(data.conversaciones.length);
+    } catch {
+      setBandejaChatCount(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refrescarConteoBandeja();
+    const id = setInterval(() => void refrescarConteoBandeja(), 30_000);
+    return () => clearInterval(id);
+  }, [refrescarConteoBandeja]);
+
+  useEffect(() => {
+    if (activeTab === "bandeja") void refrescarConteoBandeja();
+  }, [activeTab, refrescarConteoBandeja]);
+
   const setTab = (value: string) => {
     const params = new URLSearchParams(searchParams.toString());
     if (value === "inicio") {
@@ -88,6 +112,26 @@ function WhatsappMarketingPanelInner() {
           <TabsTrigger value="inicio" className="px-3 py-2">
             <TabIconLabel icon={LayoutDashboard} label="Inicio" />
           </TabsTrigger>
+          <TabsTrigger
+            value="bandeja"
+            className={cn(
+              "inline-flex items-center gap-2 px-3 py-2 font-medium",
+              "border border-primary/35 bg-primary/[0.08] shadow-sm",
+              "data-[state=active]:border-primary data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md",
+              "data-[state=inactive]:hover:bg-primary/12",
+            )}
+          >
+            <Inbox className="size-4 shrink-0 opacity-90" aria-hidden />
+            <span>Bandeja</span>
+            {bandejaChatCount != null && bandejaChatCount > 0 ? (
+              <span
+                className="flex min-h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold tabular-nums leading-none text-primary-foreground"
+                aria-label={`${bandejaChatCount} conversaciones`}
+              >
+                {bandejaChatCount > 99 ? "99+" : bandejaChatCount}
+              </span>
+            ) : null}
+          </TabsTrigger>
           <TabsTrigger value="templates" className="px-3 py-2">
             <TabIconLabel icon={LayoutTemplate} label="Templates Meta" />
           </TabsTrigger>
@@ -99,9 +143,6 @@ function WhatsappMarketingPanelInner() {
           </TabsTrigger>
           <TabsTrigger value="broadcast" className="px-3 py-2">
             <TabIconLabel icon={Megaphone} label="Broadcast" />
-          </TabsTrigger>
-          <TabsTrigger value="bandeja" className="px-3 py-2">
-            <TabIconLabel icon={Inbox} label="Bandeja" />
           </TabsTrigger>
           <TabsTrigger value="notif-woo" className="px-3 py-2">
             <TabIconLabel icon={ShoppingBag} label="Notificaciones Woo" />
@@ -126,7 +167,7 @@ function WhatsappMarketingPanelInner() {
           <WhatsappBroadcastTab />
         </TabsContent>
         <TabsContent value="bandeja">
-          <WhatsappBandejaTab />
+          <WhatsappBandejaTab onInboxCountChange={setBandejaChatCount} />
         </TabsContent>
         <TabsContent value="notif-woo">
           <WhatsappNotificacionesWooTab />

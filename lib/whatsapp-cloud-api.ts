@@ -309,3 +309,25 @@ export async function markMessageAsRead(
     }),
   });
 }
+
+/**
+ * Métricas agregadas de plantilla (Cloud API). Requiere analytics habilitado en la WABA y permisos del token.
+ * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/analytics/
+ */
+export async function fetchTemplateAnalyticsCampo(
+  wabaId: string,
+  accessToken: string,
+  templateId: string,
+  startUnix: number,
+  endUnix: number,
+): Promise<unknown> {
+  const field = [
+    `template_analytics.start(${startUnix})`,
+    `end(${endUnix})`,
+    "granularity(DAILY)",
+    'metric_types(["SENT","DELIVERED","READ","CLICKED","COST"])',
+    "product_type(CLOUD_API)",
+    `template_ids(["${templateId}"])`,
+  ].join(".");
+  return fetchGraph<unknown>(`/${wabaId}?fields=${encodeURIComponent(field)}`, accessToken);
+}

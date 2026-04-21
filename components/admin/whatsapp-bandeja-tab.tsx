@@ -114,7 +114,11 @@ function IconoEstado({ status }: { status: Mensaje["status"] }) {
   return null;
 }
 
-export function WhatsappBandejaTab() {
+type WhatsappBandejaTabProps = {
+  onInboxCountChange?: (count: number) => void;
+};
+
+export function WhatsappBandejaTab({ onInboxCountChange }: WhatsappBandejaTabProps = {}) {
   const [conversaciones, setConversaciones] = useState<ConversacionResumen[]>([]);
   const [cargandoInbox, setCargandoInbox] = useState(true);
   const [telefonoActivo, setTelefonoActivo] = useState<string | null>(null);
@@ -143,6 +147,7 @@ export function WhatsappBandejaTab() {
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as { conversaciones: ConversacionResumen[] };
       setConversaciones(data.conversaciones);
+      onInboxCountChange?.(data.conversaciones.length);
     } catch (error) {
       toast.error("No se pudo cargar la bandeja.", {
         description: error instanceof Error ? error.message : undefined,
@@ -150,7 +155,7 @@ export function WhatsappBandejaTab() {
     } finally {
       setCargandoInbox(false);
     }
-  }, []);
+  }, [onInboxCountChange]);
 
   const cargarHilo = useCallback(async (telefono: string) => {
     setCargandoMensajes(true);
